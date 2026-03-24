@@ -6,6 +6,6 @@ dependencies:
   - pytest-cov
   - pre-commit
   - cftime
-  - xarray
+  - xarray>=2023.1
   - numpy
-  - xskillscore
+  - xskillscore>=0.0.24

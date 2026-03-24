@@ -1,0 +1,11 @@
+cartopy
+cftime
+cf_units
+cf_xarray
+eofs
+matplotlib
+numpy
+pandas
+scipy
+xarray>=2023.1
+xskillscore>=0.0.24

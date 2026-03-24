@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from SMYLEutils import colormap_utils as mycolors
+from esp_lab.utils import colormap_utils as mycolors
 import numpy as np
 
 def plotcolorbar(fig, ci, cmin, cmax, titlestr, x1, x2, y1, y2,

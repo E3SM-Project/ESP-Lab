@@ -9,11 +9,11 @@ dependencies:
   - myst-nb
   - numpy
   - pip
-  - python=3.10
+  - python>=3.10
   - sphinx-autobuild
   - sphinx-copybutton
   - sphinx-inline-tabs
-  - xarray
+  - xarray>=2023.1
   - xskillscore
   - pip:
       - sphinxext-opengraph

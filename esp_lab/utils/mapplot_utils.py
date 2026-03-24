@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from SMYLEutils import colormap_utils as mycolors
+from esp_lab.utils import colormap_utils as mycolors
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.util import add_cyclic_point
