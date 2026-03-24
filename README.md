@@ -22,6 +22,17 @@ preprocessing which can assist in using intake-esm in conjunction with other dat
 
 ESP Lab also enables statistics calculations through functions providing tools to perform linear detrending along a particular axis, determine skill metrics based on model and observation DataArrays, and generate a distribution of skill scores using a smaller ensemble member size.
 
+## Updates in This Fork (E3SM S2D Extensions)
+This fork extends ESP-Lab to support analysis of E3SM subseasonal-to-decadal (S2D) ensemble simulations. Key additions include:
+
+- Support for E3SM hindcast workflows (multiple initialization dates and ensemble members)
+- Adaptation to E3SM data structures and naming conventions
+- Utilities for handling large ensemble datasets in S2D configurations
+- Integration with existing E3SM post-processing pipelines
+- Enhancements for lead-time–dependent diagnostics and analysis
+
+These updates enable ESP-Lab to be applied as a practical analysis toolkit for E3SM S2D prediction experiments.
+
 ## Installation
 ESP_Lab can be installed from PyPI with pip:
 
