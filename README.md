@@ -37,7 +37,13 @@ One can also install `esp-lab` as a developer by following these steps:
 2) cd ESP-Lab
 3) conda env create --file environment.yml
 4) conda activate esp-lab
-4) pip install -e .
+5) pip install -e .
+
+One can install `esp-lab` in the existing conda environment by following steps: 
+1) conda activate myenv
+2) cd ESP-Lab
+3) python pip install -e .
+ 
 
 [codecov-badge]: https://img.shields.io/codecov/c/github/CESM-ESPWG/ESP-Lab.svg?logo=codecov
 [codecov-link]: https://codecov.io/gh/CESM-ESPWG/ESP-Lab
