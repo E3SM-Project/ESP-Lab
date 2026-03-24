@@ -18,9 +18,9 @@ CLASSIFIERS = [
     'Intended Audience :: Science/Research',
     'Programming Language :: Python',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.8',
-    'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
     'Topic :: Scientific/Engineering',
 ]
 
@@ -30,7 +30,7 @@ setup(
     description='Utilities for SMYLE Analysis',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    python_requires='>=3.8',
+    python_requires='>=3.10',
     maintainer='ESP-Lab Team',
     maintainer_email='tking@ucar.edu',
     classifiers=CLASSIFIERS,
