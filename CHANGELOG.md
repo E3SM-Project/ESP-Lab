@@ -12,3 +12,6 @@ Updates include module documentation, testing capabilities, and various package 
 ## Version 1.1 - Aug 4, 2022
 Stats.py has been updated to include new skill score wrapper functions, allowing users to compute annual and seasonal skill with data arrays that have or have not been resampled. Dependabot features have been added. Documentation was updated. Parameters have been adjusted in data_access.get_monthly_data() to include a list of years instead of start/end year. Package updates were made to avoid dask incompatabilities and generally update packages. Jupyter notebook examples were provided as a tutorial for users.
 
+## Version ESP-E3SM — March 23, 2026
+This version builds on the original ESP-Lab package and introduces refactoring to support its application to the E3SM model. The updates focus on reorganizing the code, improving modularity, and preparing the package for E3SM-specific workflows and future development.
+
