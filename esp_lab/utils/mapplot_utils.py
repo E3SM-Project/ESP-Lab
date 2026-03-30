@@ -1,3 +1,4 @@
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from esp_lab.utils import colormap_utils as mycolors
@@ -29,14 +30,15 @@ def contourmap_bothoceans_robinson_pos(fig, dat, lon, lat, ci, cmin, cmax, title
     """
 
     # set up contour levels and color map
-    nlevs = (cmax-cmin)/ci + 1
+    nlevs = int((cmax-cmin)/ci) + 1
     clevs = np.arange(cmin, cmax+ci, ci)
 
     if (cmap == "blue2red"):
         mymap = mycolors.blue2red_cmap(nlevs)
-
-    if (cmap == "precip"):
+    elif (cmap == "precip"):
         mymap = mycolors.precip_cmap(nlevs)
+    else:
+        mymap = cmap
 
     ax = fig.add_axes([x1, y1, x2-x1, y2-y1], projection=ccrs.Robinson(central_longitude=centrallon))
     ax.set_aspect('auto')
@@ -75,7 +77,7 @@ def map_contourf_global_subplot(fig, dat, lon, lat, ci, cmin, cmax, titlestr, le
     """
 
     # set up contour levels and color map
-    nlevs = (cmax-cmin)/ci + 1
+    nlevs = int((cmax-cmin)/ci) + 1
     clevs = np.arange(cmin, cmax+ci, ci)
 
     if (cmap == "blue2red"):
@@ -172,7 +174,7 @@ def map_pcolor_global_subplot(fig, dat, lon, lat, ci, cmin, cmax, titlestr,
     """
 
     # set up contour levels and color map
-    nlevs = (cmax-cmin)/ci + 1
+    nlevs = int((cmax-cmin)/ci) + 1
     clevs = np.arange(cmin, cmax+ci, ci)
 
     if (cmap == "blue2red"):
@@ -184,7 +186,7 @@ def map_pcolor_global_subplot(fig, dat, lon, lat, ci, cmin, cmax, titlestr,
     elif (cmap == "blue2red_acc"):
         cmap = mycolors.blue2red_acc_cmap(clevs,cutoff)
     else:
-        cmap = mpl.cm.get_cmap(cmap)
+        cmap = mpl.cm.get_cmap(cmap) if isinstance(cmap, str) else cmap
     
     norm = BoundaryNorm(clevs, ncolors=cmap.N, clip=True)
     ax = fig.add_subplot(nrow,ncol,subplot, projection=proj)
@@ -198,15 +200,15 @@ def map_pcolor_global_subplot(fig, dat, lon, lat, ci, cmin, cmax, titlestr,
   
     if grid=="latlon" or grid=="camfv":
         dat, lon = add_cyclic_point(dat, coord=lon)
-        cntr = ax.pcolormesh(lon, lat, dat, shading='nearest',vmin=clevs.min(),vmax=clevs.max(),  cmap = cmap, norm=norm, rasterized=True, transform=ccrs.PlateCarree())
+        cntr = ax.pcolormesh(lon, lat, dat, shading='nearest', cmap = cmap, norm=norm, rasterized=True, transform=ccrs.PlateCarree())
         
     elif grid=="camse":
         tri, z = get_refined_triang(lon,lat, dat)
-        cntr = ax.tripcolor(tri, z, shading='flat',vmin=clevs.min(),vmax=clevs.max(), cmap = cmap, norm=norm,  rasterized=True, transform=ccrs.PlateCarree())
+        cntr = ax.tripcolor(tri, z, shading='flat', cmap = cmap, norm=norm,  rasterized=True, transform=ccrs.PlateCarree())
         
     elif grid=="pop":
         lon, lat, dat = adjust_pop_grid(lon, lat, dat)
-        cntr = ax.pcolormesh(lon, lat, dat, shading='nearest',vmin=clevs.min(),vmax=clevs.max(), cmap = cmap, norm=norm, rasterized=True, transform=ccrs.PlateCarree())
+        cntr = ax.pcolormesh(lon, lat, dat, shading='nearest', cmap = cmap, norm=norm, rasterized=True, transform=ccrs.PlateCarree())
         
     else:
         raise ValueError('ERROR: unknown grid')

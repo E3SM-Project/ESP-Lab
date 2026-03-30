@@ -1,11 +1,24 @@
 from importlib.metadata import PackageNotFoundError, version
 
-from .data_access import get_monthly_data
-from .data_access import preprocessor
+from . import data_access_smyle
+from . import data_access_e3sm
+from .data_access_smyle import get_monthly_data as get_monthly_data_smyle
+from .data_access_smyle import preprocessor as preprocessor_smyle
+from .data_access_e3sm import get_monthly_data as get_monthly_data_e3sm
+from .data_access_e3sm import preprocessor as preprocessor_e3sm
 from .stats import leadtime_skill_seas_resamp
+
+__all__ = [
+    "data_access_smyle",
+    "data_access_e3sm",
+    "get_monthly_data_smyle",
+    "preprocessor_smyle",
+    "get_monthly_data_e3sm",
+    "preprocessor_e3sm",
+    "leadtime_skill_seas_resamp",
+]
 
 try:
     __version__ = version("esp_lab")
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"  # pragma: no cover
-
