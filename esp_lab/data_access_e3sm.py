@@ -128,12 +128,20 @@ def build_init_tags(
     if isinstance(month, int):
         months = [month]
     else:
-        months = month
+        months = list(month)
+
+    for m in months:
+        if not (1 <= m <= 12):
+            raise ValueError(f"month must be in 1-12, got {m}.")
+    if not (1 <= init_day <= 31):
+        raise ValueError(f"init_day must be in 1-31, got {init_day}.")
+    if not (0 <= init_hour <= 23):
+        raise ValueError(f"init_hour must be in 0-23, got {init_hour}.")
 
     init_tags = []
     for year in years:
-        for month in months:
-            init_tags.append(f"{year:04d}{month:02d}{init_day:02d}{init_hour:02d}")
+        for m in months:
+            init_tags.append(f"{year:04d}{m:02d}{init_day:02d}{init_hour:02d}")
     return init_tags
 
 
@@ -243,6 +251,9 @@ def time_set_midmonth(ds: xr.Dataset, time_name: str) -> xr.Dataset:
     ds : xarray.Dataset
         Dataset with adjusted time coordinate.
     """
+    if time_name not in ds.coords and time_name not in ds.dims:
+        raise ValueError(f"time coordinate '{time_name}' not found in dataset.")
+
     ds = ds.copy()
 
     year = ds[time_name].dt.year
@@ -293,7 +304,18 @@ def preprocessor_monthly(ds0: xr.Dataset, nlead: int, field: str) -> xr.Dataset:
     d0 : xarray.Dataset
         Preprocessed dataset with dimensions using L instead of time.
     """
+    if field not in ds0:
+        raise ValueError(f"Field '{field}' not found in dataset. Available: {list(ds0.data_vars)}")
+
     ds0 = time_set_midmonth(ds0, 'time')
+
+    available = ds0.sizes.get('time', 0)
+    if available < nlead:
+        warnings.warn(
+            f"File has only {available} time steps but nlead={nlead} requested. "
+            "Returning all available time steps."
+        )
+
     d0 = ds0[field].isel(time=slice(0, nlead))
     
     if 'lon' in ds0.coords and 'lat' in ds0.coords:
@@ -377,7 +399,12 @@ def file_dict(
     _validate_path_arg("ts_split", ts_split)
 
     data_path = Path(data_dir)
+    if not data_path.exists():
+        raise FileNotFoundError(f"data_dir does not exist: {data_dir}")
+
     case_dirs = sorted(data_path.glob(f"{case_prefix}_*"))
+    if not case_dirs:
+        warnings.warn(f"No case directories matching '{case_prefix}_*' found in {data_dir}.")
     filepaths: Dict[str, str] = {}
 
     for case_dir in case_dirs:
@@ -505,6 +532,10 @@ def nested_file_list_by_init(
     ValueError
         If verify_coverage=True and nlead is not provided.
     """
+    if not members:
+        raise ValueError("members list must not be empty.")
+    if not init_tags:
+        raise ValueError("init_tags list must not be empty.")
     if verify_coverage and nlead is None:
         raise ValueError("nlead must be provided when verify_coverage=True")
 
@@ -548,10 +579,19 @@ def nested_file_list_by_init(
             if len(files_this_init) == len(members):
                 nested_files.append(files_this_init)
                 valid_inits.append(init_tag)
+            elif len(files_this_init) > 0:
+                warnings.warn(
+                    f"init_tag={init_tag}: found {len(files_this_init)}/{len(members)} members; "
+                    "skipping because require_all_members=True."
+                )
+            else:
+                warnings.warn(f"init_tag={init_tag}: no files found for any member; skipping.")
         else:
             if len(files_this_init) > 0:
                 nested_files.append(files_this_init)
                 valid_inits.append(init_tag)
+            else:
+                warnings.warn(f"init_tag={init_tag}: no files found for any member; skipping.")
 
     return nested_files, valid_inits
 
@@ -669,50 +709,186 @@ def get_monthly_data(
             f"realm={realm}, grid={grid}, freq={freq}, ts_split={ts_split}"
         )
 
-    # Check for bad data by doing a quick open of each file before open_mfdataset
-    for init_files in file_list:
-        _sub_list = init_files if isinstance(init_files, list) else [init_files]
-        for f in _sub_list:
-            try:
-                # Open with parallel=False context explicitly inside standard open
-                with xr.open_dataset(f, engine=engine) as _temp:
-                    pass
-            except Exception as e:
-                warnings.warn(f"Warning: Bad data or unreadable file found: {f}. Error: {e}")
-
+    open_kwargs = dict(
+        combine="nested",
+        concat_dim=["Y", "M"],
+        data_vars=[field],
+        coords="minimal",
+        compat="override",
+        engine=engine,
+        preprocess=partial(preproc_func, nlead=nlead, field=field),
+        chunks=chunks,
+    )
     try:
-        ds = xr.open_mfdataset(
-            file_list,
-            combine="nested",
-            concat_dim=["Y", "M"],
-            parallel=True,
-            data_vars=[field],
-            coords="minimal",
-            compat="override",
-            engine=engine,
-            preprocess=partial(preproc_func, nlead=nlead, field=field),
-            chunks=chunks,
-        )
-    except OSError as e:
-        if "-51" in str(e) or "Unknown file format" in str(e):
-            warnings.warn("NetCDF HDF5 read collision detected with parallel=True. Retrying with parallel=False...")
-            ds = xr.open_mfdataset(
-                file_list,
-                combine="nested",
-                concat_dim=["Y", "M"],
-                parallel=False,
-                data_vars=[field],
-                coords="minimal",
-                compat="override",
-                engine=engine,
-                preprocess=partial(preproc_func, nlead=nlead, field=field),
-                chunks=chunks,
+        ds = xr.open_mfdataset(file_list, parallel=True, **open_kwargs)
+    except Exception as e:
+        # Parallel HDF5 reads can collide on some file systems; retry serially.
+        if any(tok in str(e) for tok in ("HDF error", "Unable to open file", "Unknown file format", "errno = -")):
+            warnings.warn(
+                f"open_mfdataset with parallel=True failed ({e}). "
+                "Retrying with parallel=False."
             )
+            ds = xr.open_mfdataset(file_list, parallel=False, **open_kwargs)
         else:
             raise
 
     ds = ds.assign_coords(Y=("Y", valid_inits))
-    ds = ds.assign_coords(M=("M", members[: ds.sizes["M"]]))
+    n_members_loaded = ds.sizes["M"]
+    if n_members_loaded != len(members):
+        warnings.warn(
+            f"Loaded {n_members_loaded} member(s) but {len(members)} were requested. "
+            "This can happen when require_all_members=False and some members are missing."
+        )
+    ds = ds.assign_coords(M=("M", members[:n_members_loaded]))
     ds = ds.transpose("Y", "L", "M", ...)
 
     return ds
+
+def e3sm_region_mask(da, lonlat, lat_name="lat", lon_name="lon"):
+    """
+    Boolean regional mask for rectilinear lat/lon grid.
+
+    Parameters
+    ----------
+    da : xr.DataArray or xr.Dataset
+        Input object containing lat/lon coordinates.
+    lonlat : sequence
+        [lon_w, lon_e, lat_s, lat_n]
+    lat_name, lon_name : str
+        Coordinate names.
+
+    Returns
+    -------
+    xr.DataArray
+        Boolean mask on (lat, lon), True inside the region.
+    """
+    if len(lonlat) != 4:
+        raise ValueError(f"lonlat must have exactly 4 elements [lon_w, lon_e, lat_s, lat_n], got {len(lonlat)}.")
+    lon_w, lon_e, lat_s, lat_n = lonlat
+    if lat_s > lat_n:
+        raise ValueError(f"lat_s ({lat_s}) must be <= lat_n ({lat_n}).")
+
+    if lat_name not in da.coords or lon_name not in da.coords:
+        raise ValueError(f"Coordinates {lat_name} and/or {lon_name} not found in input data.")
+
+    lat = da[lat_name]
+    lon = da[lon_name]
+
+    # Normalize longitudes in the data and the bounds to [0, 360)
+    lon_360 = lon % 360
+    lon_w_360 = lon_w % 360
+    lon_e_360 = lon_e % 360
+
+    # Build 2D lon/lat
+    lon2d, lat2d = xr.broadcast(lon_360, lat)
+    
+    # Safely transpose if both dimensions exist in the broadcasted result
+    if lat_name in lon2d.dims and lon_name in lon2d.dims:
+        lon2d = lon2d.transpose(lat_name, lon_name)
+        lat2d = lat2d.transpose(lat_name, lon_name)
+
+    lat_mask = (lat2d >= lat_s) & (lat2d <= lat_n)
+    
+    if lon_w_360 <= lon_e_360:
+        lon_mask = (lon2d >= lon_w_360) & (lon2d <= lon_e_360)
+    else:
+        # Handles regions crossing the prime meridian (0 degrees) when using [0, 360) representation
+        lon_mask = (lon2d >= lon_w_360) | (lon2d <= lon_e_360)
+
+    region = lat_mask & lon_mask
+    return region
+
+
+def e3sm_area_weights(da, lat_name="lat", lon_name="lon", area=None):
+    """
+    Return 2D area weights for a rectilinear lat/lon grid.
+
+    Parameters
+    ----------
+    da : xr.DataArray or xr.Dataset
+        Input object containing lat/lon coordinates.
+    area : xr.DataArray, optional
+        True grid-cell area weights on (lat, lon). If None, uses cos(lat).
+
+    Returns
+    -------
+    xr.DataArray
+        2D weights on (lat, lon)
+    """
+    if area is not None:
+        return area
+
+    if lat_name not in da.coords:
+        raise ValueError(f"Coordinate '{lat_name}' not found in input data.")
+
+    lat = da[lat_name]
+    lon = da[lon_name] if lon_name in da.coords else None
+
+    if lon is None and area is None:
+        warnings.warn(
+            f"Coordinate '{lon_name}' not found; returning 1D cos(lat) weights only."
+        )
+
+    wlat = np.cos(np.deg2rad(lat))
+    
+    if lon is not None:
+        w2d, _ = xr.broadcast(wlat, lon)
+        if lat_name in w2d.dims and lon_name in w2d.dims:
+            w2d = w2d.transpose(lat_name, lon_name)
+    else:
+        w2d = wlat
+        
+    return w2d
+
+
+def e3sm_regional_weights(
+    da,
+    lonlat,
+    lat_name="lat",
+    lon_name="lon",
+    area=None,
+    mask=None,
+):
+    """
+    Build regional weights like the POP example:
+    weights inside region, 0 outside.
+    """
+    region = e3sm_region_mask(da, lonlat, lat_name=lat_name, lon_name=lon_name)
+    weights = e3sm_area_weights(da, lat_name=lat_name, lon_name=lon_name, area=area)
+
+    if mask is not None:
+        # Ensure mask is broadcasted/aligned correctly
+        region = region & mask
+
+    # Compute masked weights, filling NaNs with 0
+    return weights.where(region, 0).fillna(0)
+
+
+def e3sm_regional_mean(
+    da,
+    lonlat,
+    lat_name="lat",
+    lon_name="lon",
+    area=None,
+    mask=None,
+):
+    """
+    Area-weighted regional mean for E3SM lat/lon data.
+    """
+    reg_weights = e3sm_regional_weights(
+        da,
+        lonlat,
+        lat_name=lat_name,
+        lon_name=lon_name,
+        area=area,
+        mask=mask,
+    )
+    
+    # Calculate weighted mean over spatial dimensions
+    # For datasets with lat/lon named dimensions
+    spatial_dims = [dim for dim in [lat_name, lon_name] if dim in da.dims]
+    
+    if not spatial_dims:
+        raise ValueError(f"DataArray does not contain spatial dimensions: {lat_name}, {lon_name}")
+        
+    return da.weighted(reg_weights).mean(dim=spatial_dims, skipna=True)

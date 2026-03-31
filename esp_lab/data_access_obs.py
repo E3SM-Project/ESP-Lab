@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
+import warnings
 
 import cftime
+import numpy as np
 import xarray as xr
 
 
@@ -192,8 +194,11 @@ def standardize_latlon(ds: xr.Dataset) -> xr.Dataset:
         try:
             if (ds["lon"] < 0).any():
                 ds = ds.assign_coords(lon=(ds["lon"] % 360))
-        except Exception:
-            pass
+        except Exception as e:
+            warnings.warn(
+                f"Could not normalize longitude to [0, 360): {e}. "
+                "Longitude coordinate left unchanged."
+            )
         ds = ds.sortby("lon")
 
     return ds
@@ -215,6 +220,10 @@ def _build_monthly_noleap_time(base_year: int, ntime: int):
     time_vals : list of cftime.DatetimeNoLeap
         Mid-month monthly noleap timestamps.
     """
+    if not isinstance(base_year, int) or base_year < 1:
+        raise ValueError(f"base_year must be a positive integer, got {base_year!r}.")
+    if not isinstance(ntime, int) or ntime < 1:
+        raise ValueError(f"ntime must be a positive integer, got {ntime!r}.")
     if ntime % 12 != 0:
         raise ValueError(
             f"time dimension size ({ntime}) is not divisible by 12; "
@@ -240,34 +249,36 @@ def transform_to_mid_month(ds: xr.Dataset, time_name: str = "time") -> xr.Datase
     for Jan 1980). A naïve shift to `day=15` for this record results 
     in mid-Feb instead of mid-Jan.
     
-    This function dynamically steps backward a few hours to ensure
-    it anchors to the correct month before forcing to day 15.
+    This function detects day==1 timestamps and maps them back to the
+    previous month before forcing to day 15.
     """
     if time_name not in ds.coords:
         return ds
 
     try:
-        from datetime import timedelta
-        
-        # We try to extract the first element to ensure we have scalar time objects.
-        # Fall back if it's already an index that doesn't iterate well.
         times = ds[time_name].values
         if not hasattr(times[0], 'year'):
             return ds
 
         new_times = []
         for t in times:
-            # If the timestamp is right on the 1st of the month (often 00:00:00), 
-            # we subtract 12 hours. This pushes it into the last day of the previous
-            # month (the ACTUAL month the temporal average usually represents).
             if t.day == 1:
-                t = t - timedelta(hours=12)
-                
-            new_times.append(cftime.DatetimeNoLeap(t.year, t.month, 15))
+                # Timestamp is on the 1st — belongs to the previous month
+                prev_month = t.month - 1
+                prev_year = t.year
+                if prev_month == 0:
+                    prev_month = 12
+                    prev_year -= 1
+                new_times.append(cftime.DatetimeNoLeap(prev_year, prev_month, 15))
+            else:
+                new_times.append(cftime.DatetimeNoLeap(t.year, t.month, 15))
 
         ds = ds.assign_coords({time_name: new_times})
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(
+            f"transform_to_mid_month: could not shift time to mid-month: {e}. "
+            "Time coordinate left unchanged."
+        )
 
     return ds
 
@@ -301,11 +312,15 @@ def ensure_time_coordinate(
             if force_noleap:
                 try:
                     out = out.convert_calendar("noleap")
-                except Exception:
-                    pass
+                except Exception as e:
+                    warnings.warn(
+                        f"ensure_time_coordinate: calendar conversion to noleap failed: {e}."
+                    )
             return transform_to_mid_month(out, time_name=time_name)
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(
+            f"ensure_time_coordinate: unexpected error inspecting time coordinate: {e}."
+        )
 
     # Case 2: try CF decoding from units/calendar metadata
     if decode_times:
@@ -315,11 +330,17 @@ def ensure_time_coordinate(
                 if force_noleap:
                     try:
                         out = out.convert_calendar("noleap")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        warnings.warn(
+                            f"ensure_time_coordinate: calendar conversion to noleap failed "
+                            f"after CF decoding: {e}."
+                        )
                 return transform_to_mid_month(out, time_name=time_name)
-        except Exception:
-            pass
+        except Exception as e:
+            warnings.warn(
+                f"ensure_time_coordinate: xr.decode_cf failed: {e}. "
+                "Falling back to manual time reconstruction if base_year is provided."
+            )
 
     # Case 3: fallback manual reconstruction
     if base_year is not None:
@@ -343,7 +364,9 @@ def crop_time(
     end_year: Optional[str] = None,
 ) -> xr.Dataset:
     """
-    Crop dataset by time if a time coordinate exists.
+    Crop dataset by time using robust year-based selection.
+    Uses string time slicing or boolean masking to robustly 
+    handle both cftime and numpy datetime64.
     """
     if "time" not in ds.coords:
         return ds
@@ -351,7 +374,32 @@ def crop_time(
     if start_year is None and end_year is None:
         return ds
 
-    return ds.sel(time=slice(start_year, end_year))
+    if start_year is not None and end_year is not None:
+        if int(start_year) > int(end_year):
+            raise ValueError(
+                f"start_year ({start_year}) must be <= end_year ({end_year})."
+            )
+
+    # Method 1: Try native string-based slicing first (fastest and most standard)
+    time_slice = slice(
+        str(start_year) if start_year is not None else None,
+        str(end_year) if end_year is not None else None
+    )
+
+    try:
+        return ds.sel(time=time_slice)
+    except (KeyError, TypeError, ValueError):
+        # Method 2: Fall back to dt.year boolean masking if slicing fails
+        time = ds["time"]
+        mask = xr.ones_like(time, dtype=bool)
+
+        if start_year is not None:
+            mask = mask & (time.dt.year >= int(start_year))
+
+        if end_year is not None:
+            mask = mask & (time.dt.year <= int(end_year))
+
+        return ds.where(mask, drop=True)
 
 
 def preprocessor_monthly(
@@ -547,6 +595,13 @@ def get_monthly_data(
         field_map=field_map,
     )
 
+    valid_calendars = {"noleap", "365_day", "standard", "gregorian", "proleptic_gregorian", "all_leap", "366_day", "julian", "360_day"}
+    if calendar not in valid_calendars:
+        raise ValueError(
+            f"calendar={calendar!r} is not a recognized CF calendar. "
+            f"Expected one of: {sorted(valid_calendars)}."
+        )
+
     if verbose and field is not None and field_resolved != field:
         print(f"[OBS] Mapping field '{field}' -> '{field_resolved}'")
 
@@ -612,7 +667,6 @@ def merge_obs(primary: xr.DataArray, secondary: xr.DataArray) -> xr.DataArray:
             )
 
     return primary.fillna(secondary)
-    return primary.fillna(secondary)
 
 
 def mon_to_seas_obs(
@@ -643,6 +697,8 @@ def mon_to_seas_obs(
     """
     if var not in ds:
         raise ValueError(f"{var!r} not found in dataset")
+    if time_name not in ds.dims and time_name not in ds.coords:
+        raise ValueError(f"time dimension '{time_name}' not found in dataset.")
 
     da = (
         ds[var]
@@ -658,3 +714,191 @@ def mon_to_seas_obs(
             da = da.rename(reverse_map[var])
 
     return da
+
+
+def obs_region_mask(
+    da: xr.DataArray,
+    lonlat,
+    lat_name: str = "lat",
+    lon_name: str = "lon",
+) -> xr.DataArray:
+    """
+    Boolean regional mask for a rectilinear observational lat/lon grid.
+
+    Handles both [-180, 180] and [0, 360) longitude conventions automatically,
+    and correctly masks regions that cross the dateline.
+
+    Parameters
+    ----------
+    da : xr.DataArray or xr.Dataset
+        Input object containing lat/lon coordinates.
+    lonlat : sequence of length 4
+        [lon_w, lon_e, lat_s, lat_n]. Longitudes may be in either
+        [-180, 180] or [0, 360); they are normalized internally to [0, 360).
+    lat_name : str, optional
+        Latitude coordinate name, default 'lat'.
+    lon_name : str, optional
+        Longitude coordinate name, default 'lon'.
+
+    Returns
+    -------
+    xr.DataArray
+        Boolean mask, True inside the region.
+
+    Raises
+    ------
+    ValueError
+        If lonlat does not have 4 elements, lat_s > lat_n, or coordinates
+        are not found.
+    """
+    lonlat = list(lonlat)
+    if len(lonlat) != 4:
+        raise ValueError(
+            f"lonlat must have exactly 4 elements [lon_w, lon_e, lat_s, lat_n], "
+            f"got {len(lonlat)}."
+        )
+    lon_w, lon_e, lat_s, lat_n = lonlat
+    if lat_s > lat_n:
+        raise ValueError(f"lat_s ({lat_s}) must be <= lat_n ({lat_n}).")
+
+    if lat_name not in da.coords:
+        raise ValueError(f"Coordinate '{lat_name}' not found in input data.")
+    if lon_name not in da.coords:
+        raise ValueError(f"Coordinate '{lon_name}' not found in input data.")
+
+    lat = da[lat_name]
+    lon = da[lon_name]
+
+    # Normalize data longitudes and region bounds to [0, 360)
+    lon_360 = lon % 360
+    lon_w_360 = lon_w % 360
+    lon_e_360 = lon_e % 360
+
+    # Broadcast to 2D and enforce (lat, lon) ordering
+    lon2d, lat2d = xr.broadcast(lon_360, lat)
+    if lat_name in lon2d.dims and lon_name in lon2d.dims:
+        lon2d = lon2d.transpose(lat_name, lon_name)
+        lat2d = lat2d.transpose(lat_name, lon_name)
+
+    lat_mask = (lat2d >= lat_s) & (lat2d <= lat_n)
+
+    if lon_w_360 <= lon_e_360:
+        lon_mask = (lon2d >= lon_w_360) & (lon2d <= lon_e_360)
+    else:
+        # Region crosses the dateline in [0, 360) convention
+        lon_mask = (lon2d >= lon_w_360) | (lon2d <= lon_e_360)
+
+    return lat_mask & lon_mask
+
+
+def obs_regional_weights(
+    da: xr.DataArray,
+    lonlat,
+    lat_name: str = "lat",
+    lon_name: str = "lon",
+    area: xr.DataArray = None,
+    mask: xr.DataArray = None,
+) -> xr.DataArray:
+    """
+    Build 2D area weights for a regional mean over observational data.
+
+    Weights are cos(lat) inside the region (or `area` if provided), and
+    zero outside. An additional boolean `mask` (e.g. land/ocean) can be
+    combined with the region.
+
+    Parameters
+    ----------
+    da : xr.DataArray or xr.Dataset
+        Input object containing lat/lon coordinates.
+    lonlat : sequence of length 4
+        [lon_w, lon_e, lat_s, lat_n].
+    lat_name : str, optional
+        Latitude coordinate name, default 'lat'.
+    lon_name : str, optional
+        Longitude coordinate name, default 'lon'.
+    area : xr.DataArray, optional
+        True grid-cell area weights. If None, cos(lat) is used.
+    mask : xr.DataArray, optional
+        Additional boolean mask (True = keep). Applied on top of the
+        regional mask, e.g. to restrict to land or ocean only.
+
+    Returns
+    -------
+    xr.DataArray
+        2D weights on (lat, lon), zero outside the region.
+    """
+    region = obs_region_mask(da, lonlat, lat_name=lat_name, lon_name=lon_name)
+
+    if mask is not None:
+        region = region & mask.astype(bool)
+
+    if area is not None:
+        weights = area
+    else:
+        if lat_name not in da.coords:
+            raise ValueError(f"Coordinate '{lat_name}' not found in input data.")
+        wlat = xr.DataArray(
+            np.cos(np.deg2rad(da[lat_name])), dims=[lat_name]
+        )
+        if lon_name in da.coords:
+            weights, _ = xr.broadcast(wlat, da[lon_name])
+            if lat_name in weights.dims and lon_name in weights.dims:
+                weights = weights.transpose(lat_name, lon_name)
+        else:
+            weights = wlat
+
+    return weights.where(region, 0).fillna(0)
+
+
+def obs_regional_mean(
+    da: xr.DataArray,
+    lonlat,
+    lat_name: str = "lat",
+    lon_name: str = "lon",
+    area: xr.DataArray = None,
+    mask: xr.DataArray = None,
+) -> xr.DataArray:
+    """
+    Area-weighted regional mean for observational lat/lon data.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Input DataArray on a rectilinear lat/lon grid.
+    lonlat : sequence of length 4
+        [lon_w, lon_e, lat_s, lat_n].
+    lat_name : str, optional
+        Latitude coordinate name, default 'lat'.
+    lon_name : str, optional
+        Longitude coordinate name, default 'lon'.
+    area : xr.DataArray, optional
+        True grid-cell area weights. If None, cos(lat) is used.
+    mask : xr.DataArray, optional
+        Additional boolean mask (True = keep).
+
+    Returns
+    -------
+    xr.DataArray
+        Weighted regional mean with spatial dimensions reduced.
+
+    Raises
+    ------
+    ValueError
+        If neither lat nor lon dimension is found in `da`.
+    """
+    reg_weights = obs_regional_weights(
+        da,
+        lonlat,
+        lat_name=lat_name,
+        lon_name=lon_name,
+        area=area,
+        mask=mask,
+    )
+
+    spatial_dims = [dim for dim in [lat_name, lon_name] if dim in da.dims]
+    if not spatial_dims:
+        raise ValueError(
+            f"DataArray does not contain spatial dimensions '{lat_name}' or '{lon_name}'."
+        )
+
+    return da.weighted(reg_weights).mean(dim=spatial_dims, skipna=True)
