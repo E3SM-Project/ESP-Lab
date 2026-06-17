@@ -1,0 +1,17 @@
+cartopy
+cftime
+cf_units
+cf_xarray
+dask
+dask-jobqueue
+distributed
+eofs
+matplotlib
+netcdf4
+numpy
+pandas
+regionmask
+scipy
+xarray>=2023.1
+xesmf
+xskillscore>=0.0.24

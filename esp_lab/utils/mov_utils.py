@@ -1,0 +1,526 @@
+"""Helpers for extra-tropical modes-of-variability diagnostics.
+
+This single-file utility module groups map/projection, plotting, metric, and
+small workflow helpers used by the MOV analysis notebook.
+"""
+
+import numpy as np
+import matplotlib.path as mpath
+import matplotlib.ticker as mticker
+
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
+except Exception as error:  # pragma: no cover - depends on optional cartopy stack
+    ccrs = None
+    cfeature = None
+    LATITUDE_FORMATTER = None
+    LONGITUDE_FORMATTER = None
+    CARTOPY_IMPORT_ERROR = error
+else:
+    CARTOPY_IMPORT_ERROR = None
+
+
+DEFAULT_PROJECTION_BY_MODE = {
+    "NAM": "north_polar",
+    "SAM": "south_polar",
+    "NAO": "atlantic",
+    "EA": "atlantic",
+    "SCA": "atlantic",
+    "PNA": "north_polar",
+    "PSA1": "south_polar",
+    "PSA2": "south_polar",
+    "NPO": "north_pacific",
+    "PDO": "pacific_global",
+    "NPGO": "north_pacific",
+    "AMO": "atlantic_global",
+}
+
+
+def has_cartopy():
+    return ccrs is not None
+
+def make_projection(
+    mode,
+    projection_by_mode=None,
+    albers_projection_by_mode=None,
+    use_cartopy=True,
+):
+    """Return a Cartopy projection and symbolic projection name for a mode.
+
+    Parameters
+    ----------
+    mode : str
+        Mode name, e.g., "NPO", "NAO", "SCA".
+    projection_by_mode : dict, optional
+        Mapping from mode name to projection family.
+    albers_projection_by_mode : dict, optional
+        Mapping from mode name to AlbersEqualArea keyword arguments.
+    use_cartopy : bool
+        If False, return plain matplotlib axes.
+    """
+    if ccrs is None or not use_cartopy:
+        return None, None
+
+    mode = mode.upper().strip()
+    projection_by_mode = projection_by_mode or DEFAULT_PROJECTION_BY_MODE
+    albers_projection_by_mode = albers_projection_by_mode or {}
+
+    projection_name = projection_by_mode.get(mode, "platecarree")
+
+    if projection_name in {"north_pacific", "atlantic"}:
+        default_albers = {
+            "central_longitude": 180 if projection_name == "north_pacific" else -30,
+            "central_latitude": 40 if projection_name == "north_pacific" else 50,
+            "standard_parallels": (20, 60)
+            if projection_name == "north_pacific"
+            else (30, 70),
+        }
+
+        params = {
+            **default_albers,
+            **albers_projection_by_mode.get(mode, {}),
+        }
+
+        return ccrs.AlbersEqualArea(**params), projection_name
+
+    if projection_name == "north_polar":
+        return ccrs.NorthPolarStereo(), projection_name
+
+    if projection_name == "south_polar":
+        return ccrs.SouthPolarStereo(), projection_name
+
+    if projection_name == "pacific":
+        return ccrs.PlateCarree(central_longitude=180), projection_name
+
+    if projection_name == "pacific_global":
+        return ccrs.Robinson(central_longitude=180), projection_name
+
+    if projection_name == "atlantic_global":
+        return ccrs.Robinson(central_longitude=0), projection_name
+
+    return ccrs.PlateCarree(), projection_name
+
+def data_crs():
+    return ccrs.PlateCarree() if ccrs is not None else None
+
+
+def mode_extent(mode, pattern):
+    """Return lon/lat extent for the mode using the pattern coordinates."""
+    lon_min = float(pattern.lon.min())
+    lon_max = float(pattern.lon.max())
+    lat_min = float(pattern.lat.min())
+    lat_max = float(pattern.lat.max())
+    if mode == "NAM":
+        return [-180, 180, max(20, lat_min), 90]
+    if mode == "SAM":
+        return [-180, 180, -90, min(-20, lat_max)]
+    if mode in {"NPO", "NPGO"}:
+        return [120, 240, 15, 75]
+    if mode in {"PDO", "NPGO", "AMO"}:
+        return [-180, 180, -90, 90]
+    return [lon_min, lon_max, lat_min, lat_max]
+
+
+def tick_values(projection_name, settings):
+    """Return longitude/latitude ticks with robust fallback.
+
+    New preferred keys:
+        longitude_ticks, latitude_ticks
+
+    Legacy projection-specific keys are still supported for compatibility.
+    """
+    if "longitude_ticks" in settings and "latitude_ticks" in settings:
+        return settings["longitude_ticks"], settings["latitude_ticks"]
+
+    if projection_name == "atlantic":
+        return (
+            settings.get("atlantic_longitude_ticks", np.arange(-90, 31, 30)),
+            settings.get("atlantic_latitude_ticks", np.arange(20, 81, 10)),
+        )
+
+    if projection_name == "north_pacific":
+        return (
+            settings.get("north_pacific_longitude_ticks", np.array([120, 150, 180, 210, 240])),
+            settings.get("north_pacific_latitude_ticks", np.array([20, 30, 40, 50, 60, 70])),
+        )
+
+    if projection_name in {"pacific_global", "atlantic_global"}:
+        return (
+            settings.get("global_longitude_ticks", np.arange(-180, 181, 60)),
+            settings.get("global_latitude_ticks", np.arange(-60, 61, 30)),
+        )
+
+    return (
+        settings.get("longitude_ticks", np.arange(-180, 181, 60)),
+        settings.get("latitude_ticks", np.arange(-90, 91, 20)),
+    )
+    
+def set_extent(ax, projection_name, extent, data_projection):
+    if projection_name in {"pacific_global", "atlantic_global"}:
+        ax.set_global()
+        return
+    ax.set_extent(extent, crs=data_projection)
+
+
+def add_map_features(ax, projection_name, settings):
+    """Add mode-aware land/coast features."""
+    if cfeature is None:
+        ax.coastlines(linewidth=settings["coastline_linewidth"])
+        return
+
+    if projection_name in {"pacific_global", "atlantic_global"}:
+        ax.add_feature(
+            cfeature.LAND,
+            facecolor=settings["global_land_facecolor"],
+            edgecolor=settings["global_land_edgecolor"],
+            linewidth=settings["global_land_linewidth"],
+            zorder=settings["global_land_zorder"],
+        )
+        ax.coastlines(
+            linewidth=settings["global_coastline_linewidth"],
+            color=settings["global_coastline_color"],
+            zorder=settings["global_coastline_zorder"],
+        )
+        return
+
+    ax.coastlines(linewidth=settings["coastline_linewidth"])
+
+
+def format_longitude_label(lon):
+    lon = float(lon)
+    if np.isclose(abs(lon), 180):
+        return "180°"
+    if np.isclose(lon, 0):
+        return "0°"
+    suffix = "E" if lon > 0 else "W"
+    return f"{abs(lon):g}°{suffix}"
+
+
+def add_polar_longitude_labels(
+    ax,
+    mode,
+    extent,
+    data_projection,
+    *,
+    longitude_ticks,
+    label_offset,
+    fontsize,
+    color="0.25",
+):
+    """Draw longitude labels around NAM/SAM polar panels."""
+    if mode not in {"NAM", "SAM"}:
+        return
+    if mode == "NAM":
+        label_lat = extent[2] + label_offset
+        va = "top"
+    else:
+        label_lat = extent[3] - label_offset
+        va = "bottom"
+
+    for lon in longitude_ticks:
+        if np.isclose(lon, 180):
+            continue
+        ax.text(
+            float(lon),
+            label_lat,
+            format_longitude_label(lon),
+            transform=data_projection,
+            ha="center",
+            va=va,
+            fontsize=fontsize,
+            color=color,
+            clip_on=False,
+        )
+
+
+def apply_polar_circular_boundary(ax, projection_name, *, enabled=True):
+    if projection_name not in {"north_polar", "south_polar"} or not enabled:
+        return
+    theta = np.linspace(0, 2 * np.pi, 181)
+    vertices = np.column_stack([np.sin(theta), np.cos(theta)]) * 0.5 + 0.5
+    ax.set_boundary(mpath.Path(vertices), transform=ax.transAxes)
+
+
+def _as_label_list(values, labels=None):
+    """Return string labels matching the given tick values."""
+    if labels is not None:
+        return [str(label) for label in labels]
+    return [str(value) for value in values]
+
+
+def _draw_manual_lonlat_labels(
+    ax,
+    *,
+    row,
+    col,
+    section_last_rows,
+    extent,
+    data_projection,
+    settings,
+    fontsize,
+):
+    """Draw box-parallel manual lon/lat labels for projected regional maps.
+
+    These labels are intentionally placed in axes coordinates, not map/data
+    coordinates. This keeps them horizontal and parallel to the subplot box.
+    """
+
+    show_left = (
+        settings.get("draw_left_labels", True)
+        and (col == 0 or not settings.get("label_left_column_only", True))
+    )
+    show_bottom = (
+        settings.get("draw_bottom_labels", True)
+        and (
+            row in section_last_rows
+            or not settings.get("label_bottom_row_only", True)
+        )
+    )
+
+    longitude_ticks = np.asarray(settings.get("longitude_ticks", []), dtype=float)
+    latitude_ticks = np.asarray(settings.get("latitude_ticks", []), dtype=float)
+
+    longitude_labels = _as_label_list(
+        longitude_ticks, settings.get("longitude_ticklabels")
+    )
+    latitude_labels = _as_label_list(
+        latitude_ticks, settings.get("latitude_ticklabels")
+    )
+
+    label_color = settings.get("manual_label_color", "0.15")
+    label_fontsize = settings.get("manual_label_fontsize", fontsize)
+
+    if show_left and latitude_labels:
+        y_positions = settings.get(
+            "manual_lat_label_y_positions",
+            np.linspace(0.35, 0.65, len(latitude_labels)),
+        )
+        x_position = settings.get("manual_lat_label_x", -0.035)
+
+        for y, label in zip(y_positions, latitude_labels):
+            ax.text(
+                x_position,
+                y,
+                label,
+                transform=data_projection,
+                ha="right",
+                va="center",
+                fontsize=label_fontsize,
+                color=label_color,
+                rotation=0,
+                clip_on=False,
+                zorder=20,
+            )
+
+    if show_bottom and longitude_labels:
+        x_positions = settings.get(
+            "manual_lon_label_x_positions",
+            np.linspace(0.25, 0.75, len(longitude_labels)),
+        )
+        y_position = settings.get("manual_lon_label_y", -0.065)
+
+        for x, label in zip(x_positions, longitude_labels):
+            ax.text(
+                x,
+                y_position,
+                label,
+                transform=data_projection,
+                ha="center",
+                va="top",
+                fontsize=label_fontsize,
+                color=label_color,
+                rotation=0,
+                clip_on=False,
+                zorder=20,
+            )
+
+def configure_gridlines(
+    ax,
+    *,
+    mode,
+    projection_name,
+    row,
+    col,
+    section_last_rows,
+    extent,
+    data_projection,
+    settings,
+    fontsize,
+):
+    """Configure mode-aware gridlines and coordinate labels for a panel.
+
+    Label strategies:
+      - cartopy: use Cartopy Gridliner labels.
+      - pacific: use Cartopy gridlines, but draw lon/lat labels manually.
+      - polar: use manual polar longitude labels.
+    """
+    is_polar = projection_name in {"north_polar", "south_polar"}
+    label_strategy = settings.get("label_strategy", "cartopy")
+    longitude_ticks, latitude_ticks = tick_values(projection_name, settings)
+
+    draw_cartopy_labels = (
+        settings.get("map_draw_labels", True)
+        and label_strategy == "cartopy"
+        and not is_polar
+    )
+
+    gridliner = ax.gridlines(
+        draw_labels=draw_cartopy_labels,
+        linewidth=settings["grid_linewidth"],
+        alpha=settings["grid_alpha"],
+        rotate_labels=settings.get("grid_rotate_labels", False),
+        linestyle=settings.get("grid_linestyle", "--"),
+        color=settings.get("grid_color", "0.55"),
+        x_inline=False,
+        y_inline=False,
+    )
+
+    gridliner.xlocator = mticker.FixedLocator(longitude_ticks)
+    gridliner.ylocator = mticker.FixedLocator(latitude_ticks)
+    gridliner.rotate_labels = settings.get("grid_rotate_labels", False)
+
+    if not settings.get("map_draw_labels", True):
+        return gridliner
+
+    if is_polar or label_strategy == "polar":
+        if row in section_last_rows:
+            add_polar_longitude_labels(
+                ax,
+                mode,
+                extent,
+                data_projection,
+                longitude_ticks=settings.get("polar_longitude_ticks", longitude_ticks),
+                label_offset=settings.get("polar_longitude_label_offset", 2.5),
+                fontsize=fontsize,
+            )
+        return gridliner
+
+    # Default Cartopy label path.
+    gridliner.top_labels = settings.get("draw_top_labels", False)
+    gridliner.right_labels = settings.get("draw_right_labels", False)
+    gridliner.left_labels = (
+        settings.get("draw_left_labels", True)
+        and (col == 0 or not settings.get("label_left_column_only", True))
+    )
+    gridliner.bottom_labels = (
+        settings.get("draw_bottom_labels", True)
+        and (row in section_last_rows or not settings.get("label_bottom_row_only", True))
+    )
+    gridliner.xlabel_style = {"size": fontsize}
+    gridliner.ylabel_style = {"size": fontsize}
+
+    if LONGITUDE_FORMATTER is not None:
+        gridliner.xformatter = LONGITUDE_FORMATTER
+    if LATITUDE_FORMATTER is not None:
+        gridliner.yformatter = LATITUDE_FORMATTER
+
+    return gridliner
+
+# -----------------------------------------------------------------------------
+# General notebook/workflow helpers
+# -----------------------------------------------------------------------------
+def safe_token(value):
+    """Return a filesystem-safe token for figure/file names."""
+    import re
+
+    return re.sub(r"[^A-Za-z0-9]+", "_", str(value)).strip("_").lower()
+
+
+def figure_filename(*parts, ext="png"):
+    """Build a consistent figure filename from descriptive tokens."""
+    clean = ["fig"] + [safe_token(part) for part in parts if str(part).strip()]
+    return "_".join(clean) + f".{ext.lstrip('.').lower()}"
+
+
+# -----------------------------------------------------------------------------
+# Data/plot helpers for MOV EOF-pattern panels
+# -----------------------------------------------------------------------------
+
+def add_cyclic_longitude_for_plot(data_array):
+    """Append the first longitude column to the end for global contour plots.
+
+    The function only adds a cyclic column when the longitude coordinate appears
+    to cover nearly the full globe. Regional fields are returned unchanged.
+    """
+    import xarray as xr
+
+    lon = data_array.lon
+    if lon.size < 2:
+        return data_array
+    lon_span = float(lon.max() - lon.min())
+    lon_step = float(lon.diff("lon").median())
+    if lon_span + lon_step < 350:
+        return data_array
+    cyclic = xr.concat([data_array, data_array.isel(lon=0)], dim="lon")
+    cyclic_lon = np.concatenate([lon.values, [float(lon.values[-1]) + lon_step]])
+    return cyclic.assign_coords(lon=cyclic_lon)
+
+
+def spatial_pattern_metrics(model_pattern, reference_pattern):
+    """Return cosine-latitude-weighted RMSE and pattern correlation."""
+    import xarray as xr
+
+    model_pattern, reference_pattern = xr.align(
+        model_pattern, reference_pattern, join="exact"
+    )
+    valid = np.isfinite(model_pattern) & np.isfinite(reference_pattern)
+    weights = np.cos(np.deg2rad(reference_pattern.lat)).broadcast_like(
+        reference_pattern
+    ).where(valid)
+    weight_sum = weights.sum(("lat", "lon"))
+    difference = model_pattern - reference_pattern
+    rmse = np.sqrt((weights * difference**2).sum(("lat", "lon")) / weight_sum)
+    model_mean = (weights * model_pattern).sum(("lat", "lon")) / weight_sum
+    reference_mean = (weights * reference_pattern).sum(("lat", "lon")) / weight_sum
+    model_anomaly = model_pattern - model_mean
+    reference_anomaly = reference_pattern - reference_mean
+    covariance = (weights * model_anomaly * reference_anomaly).sum(("lat", "lon"))
+    model_variance = (weights * model_anomaly**2).sum(("lat", "lon"))
+    reference_variance = (weights * reference_anomaly**2).sum(("lat", "lon"))
+    pcc = covariance / np.sqrt(model_variance * reference_variance)
+    return float(rmse), float(pcc)
+
+
+def bootstrap_interval_excludes_zero(dataset, selector):
+    """Return a boolean significance mask when bootstrap CI excludes zero."""
+    import xarray as xr
+
+    required = {"mode_pattern_bootstrap_lower", "mode_pattern_bootstrap_upper"}
+    if not required <= set(dataset.data_vars):
+        return None
+    lower = dataset["mode_pattern_bootstrap_lower"].sel(selector)
+    upper = dataset["mode_pattern_bootstrap_upper"].sel(selector)
+    lower, upper = xr.align(lower, upper, join="exact")
+    return np.isfinite(lower) & np.isfinite(upper) & ((lower > 0) | (upper < 0))
+
+
+def pattern_significance(
+    dataset,
+    selector,
+    *,
+    allow_regression,
+    eof_bootstrap_confidence=np.nan,
+):
+    """Return significance mask and a human-readable significance label."""
+    if allow_regression and "mode_regression_significant" in dataset:
+        confidence = float(dataset.attrs.get("regression_confidence", np.nan))
+        label = "projected-regression significance"
+        if np.isfinite(confidence):
+            label = f"{confidence:.0%} {label}"
+        return dataset["mode_regression_significant"].sel(selector).astype(bool), label
+
+    significant = bootstrap_interval_excludes_zero(dataset, selector)
+    if significant is None:
+        return None, None
+    confidence = float(dataset.attrs.get("eof_bootstrap_confidence", eof_bootstrap_confidence))
+    label = "bootstrap CI excludes zero"
+    if np.isfinite(confidence):
+        label = f"{confidence:.0%} {label}"
+    return significant, label
+
+
+def target_year_from_display_lead(display_lead):
+    """Convert a displayed monthly lead into a one-indexed target year."""
+    return 1 + (int(display_lead) - 1) // 12
