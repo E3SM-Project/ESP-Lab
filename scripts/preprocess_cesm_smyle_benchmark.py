@@ -355,7 +355,7 @@ def _set_benchmark_metadata(
         "grid": "f09_g17 (0.9x1.25 FV)",
         "frequency": frequency,
         "processing": processing,
-        "created_by": "workflows/preprocess_cesm_smyle_benchmark.py",
+        "created_by": "scripts/preprocess_cesm_smyle_benchmark.py",
     })
 
 def verify_benchmark(

@@ -7,7 +7,8 @@ import numpy as np
 import xarray as xr
 
 from workflows import modes_of_variability_core as core
-from workflows.run_modes_of_variability import (
+from scripts.run_modes_of_variability import (
+    add_skill_lead_subset,
     cached_product_matches,
     configuration_signature,
     validate_args,
@@ -75,6 +76,39 @@ def test_configuration_signature_invalidates_changed_inputs():
         "e3sm", _settings(), _args(monthly_nlead=18), include_mode=True
     )
     assert baseline != changed
+
+
+def test_add_skill_lead_subset_keeps_full_monthly_leads():
+    dataset = xr.Dataset(
+        {
+            "mode_index": (
+                ("Y", "L", "M"),
+                np.arange(2 * 12 * 3, dtype=float).reshape(2, 12, 3),
+            ),
+            "valid_time": (
+                ("Y", "L"),
+                np.array(
+                    [
+                        np.arange("2000-11", "2001-11", dtype="datetime64[M]"),
+                        np.arange("2001-11", "2002-11", dtype="datetime64[M]"),
+                    ]
+                ),
+            ),
+            "target_month": ("L", [11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        },
+        coords={"Y": [2000, 2001], "L": np.arange(1, 13), "M": [1, 2, 3]},
+    )
+
+    result = add_skill_lead_subset(dataset, "NPGO")
+
+    assert result.sizes["L"] == 12
+    assert result.sizes["skill_L"] == 4
+    np.testing.assert_array_equal(result["mode_index_skill"].skill_L, [3, 6, 9, 12])
+    np.testing.assert_array_equal(result["target_month_skill"], [1, 4, 7, 10])
+    xr.testing.assert_equal(
+        result["mode_index_skill"].rename(skill_L="L"),
+        dataset["mode_index"].sel(L=[3, 6, 9, 12]),
+    )
 
 
 def test_cached_product_requires_matching_signature(tmp_path):

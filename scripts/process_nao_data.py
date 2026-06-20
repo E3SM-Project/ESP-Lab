@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 
 try:
-    from workflows.run_modes_of_variability import main
+    from scripts.run_modes_of_variability import main
 except ModuleNotFoundError:
     from run_modes_of_variability import main
 

@@ -22,14 +22,11 @@ import dask
 import numpy as np
 import xarray as xr
 
-try:
-    from workflows import modes_of_variability_core as core
-except ModuleNotFoundError:
-    import modes_of_variability_core as core
+from workflows import modes_of_variability_core as core
 
 
 LOG = logging.getLogger(__name__)
-PRODUCT_CONFIGURATION_SCHEMA = 3
+PRODUCT_CONFIGURATION_SCHEMA = 5
 
 
 def configuration_signature(
@@ -126,6 +123,51 @@ def add_mode_aliases(dataset: xr.Dataset, mode: str) -> xr.Dataset:
     return result
 
 
+def add_skill_lead_subset(dataset: xr.Dataset, mode: str) -> xr.Dataset:
+    """Add a seasonal lead subset for ACC/RMSE skill calculations.
+
+    Temperature-mode products keep monthly leads for pattern diagnostics, but
+    the lead-dependent skill plots verify only seasonal target months.  Store
+    that subset on a separate dimension so consumers do not accidentally use
+    the first N monthly leads as seasonal leads.
+    """
+    required = {"mode_index", "valid_time", "target_month"}
+    if not required <= set(dataset):
+        return dataset
+
+    seasonal = dataset["target_month"].isin([1, 4, 7, 10])
+    skill_leads = dataset["target_month"].L.where(seasonal, drop=True)
+    if skill_leads.size == 0:
+        return dataset
+
+    result = dataset.copy()
+    skill_index = result["mode_index"].sel(L=skill_leads).rename(L="skill_L")
+    skill_time = result["valid_time"].sel(L=skill_leads).rename(L="skill_L")
+    skill_month = result["target_month"].sel(L=skill_leads).rename(L="skill_L")
+    skill_index = skill_index.assign_coords(skill_L=skill_leads.values)
+    skill_time = skill_time.assign_coords(skill_L=skill_leads.values)
+    skill_month = skill_month.assign_coords(skill_L=skill_leads.values)
+
+    result["mode_index_skill"] = skill_index
+    result["valid_time_skill"] = skill_time
+    result["target_month_skill"] = skill_month
+
+    prefix = mode.lower()
+    alias = f"{prefix}_eof_skill"
+    if alias not in result:
+        result[alias] = result["mode_index_skill"]
+
+    result["mode_index_skill"].attrs.update(
+        long_name="Seasonal target-month subset of mode_index for skill metrics",
+        description=(
+            "Mode index at target months DJF/MAM/JJA/SON, stored separately "
+            "from the full lead axis so ACC/RMSE calculations use seasonal "
+            "leads instead of the first monthly leads."
+        ),
+    )
+    return result
+
+
 def index_dataset(
     field_ds: xr.Dataset,
     source: str,
@@ -167,6 +209,7 @@ def index_dataset(
             anomalies, station_definition
         ).load()
     mode_ds["valid_time"] = field_ds["valid_time"]
+    mode_ds = add_skill_lead_subset(mode_ds, mode)
     return add_mode_aliases(mode_ds, mode), references
 
 
@@ -191,7 +234,7 @@ def write_product(
         source_field=str(settings["field"]),
         frequency=str(settings["frequency"]),
         climatology=f"{args.clim_start}-{args.clim_end}",
-        processing_script="workflows/run_modes_of_variability.py",
+        processing_script="scripts/run_modes_of_variability.py",
         eof_method="PCMDI Metrics Package variability_mode",
         eof_strategy=getattr(args, "eof_strategy", "fixed_obs_projection"),
         model_pattern_definition=(
@@ -202,6 +245,12 @@ def write_product(
         common_basis_reference=str(settings["obs_product"]),
         eof_scaling=str(args.eof_scaling),
         remove_domain_mean=str(args.remove_domain_mean),
+        sst_ocean_mask_min_valid_fraction=str(
+            getattr(args, "sst_ocean_mask_min_valid_fraction", 0.5)
+        ),
+        sst_ocean_mask_resolution=str(
+            getattr(args, "sst_ocean_mask_resolution", "110m")
+        ),
         eof_bootstrap_iterations=int(args.eof_bootstrap_iterations),
         eof_bootstrap_seed=int(args.eof_bootstrap_seed),
         eof_bootstrap_confidence=float(args.eof_bootstrap_confidence),
@@ -354,7 +403,7 @@ def write_manifest(
     payload = {
         "schema_version": PRODUCT_CONFIGURATION_SCHEMA,
         "created": datetime.now(timezone.utc).isoformat(),
-        "processing_script": "workflows/run_modes_of_variability.py",
+        "processing_script": "scripts/run_modes_of_variability.py",
         "sources": args.sources,
         "modes": mode_configs,
         "init_months": args.init_months,
@@ -382,6 +431,14 @@ def write_manifest(
             "bootstrap_seed": args.eof_bootstrap_seed,
             "bootstrap_confidence": args.eof_bootstrap_confidence,
             "regression_confidence": getattr(args, "regression_confidence", 0.95),
+            "sst_ocean_mask": {
+                "min_valid_fraction": getattr(
+                    args, "sst_ocean_mask_min_valid_fraction", 0.5
+                ),
+                "natural_earth_resolution": getattr(
+                    args, "sst_ocean_mask_resolution", "110m"
+                ),
+            },
         },
         "products": products,
     }
@@ -490,6 +547,14 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--eof-reference-source must be one of obs, era5, hadisst2.")
     if not 0 < getattr(args, "regression_confidence", 0.95) < 1:
         raise ValueError("--regression-confidence must lie between 0 and 1.")
+    if not 0 <= getattr(args, "sst_ocean_mask_min_valid_fraction", 0.5) <= 1:
+        raise ValueError(
+            "--sst-ocean-mask-min-valid-fraction must lie between 0 and 1."
+        )
+    if getattr(args, "sst_ocean_mask_resolution", "110m") not in {"110m", "50m", "10m"}:
+        raise ValueError(
+            "--sst-ocean-mask-resolution must be one of 110m, 50m, or 10m."
+        )
     if (
         getattr(args, "eof_strategy", "fixed_obs_projection") == "fixed_obs_projection"
         and args.eof_bootstrap_iterations

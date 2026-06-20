@@ -767,7 +767,7 @@ def load_benchmark(
     Load a pre-processed CESM-SMYLE benchmark file.
 
     Benchmark files are created by
-    ``workflows/preprocess_cesm_smyle_benchmark.py``.  They contain seasonal
+    ``scripts/preprocess_cesm_smyle_benchmark.py``.  They contain seasonal
     (or monthly) means with dimensions (Y, L, M, lat, lon) on the native
     f09_g17 grid.
 
@@ -811,7 +811,7 @@ def load_benchmark(
     if not fpath.exists():
         raise FileNotFoundError(
             f"Benchmark file not found: {fpath}\n"
-            "Run workflows/preprocess_cesm_smyle_benchmark.py to generate it."
+            "Run scripts/preprocess_cesm_smyle_benchmark.py to generate it."
         )
     if chunks is None:
         # f09_g17 grid is 192 lat × 288 lon; chunk at half-grid
