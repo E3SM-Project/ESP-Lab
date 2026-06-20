@@ -41,6 +41,10 @@ jobs:
           python -m pip install -e . --no-deps --force-reinstall
           conda list
 
+      - name: Install pcmdi_metrics
+        run: |
+          python -m pip install git+https://github.com/PCMDI/pcmdi_metrics.git
+
       - name: Run Tests
         id: test
         run: |
