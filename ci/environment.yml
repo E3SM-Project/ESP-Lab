@@ -17,6 +17,7 @@ dependencies:
   - numpy
   - pandas
   - pip
+  - pcmdi_metrics
   - pre-commit
   - pytest
   - pytest-cov

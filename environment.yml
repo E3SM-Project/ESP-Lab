@@ -34,6 +34,7 @@ dependencies:
   - pandas
   - pint
   - pip
+  - pcmdi_metrics
   - pop-tools
   - pre-commit
   - pytest
