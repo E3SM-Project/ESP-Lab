@@ -22,6 +22,10 @@ import dask
 import numpy as np
 import xarray as xr
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from workflows import modes_of_variability_core as core
 
 
@@ -391,6 +395,17 @@ def process_one(
     )
 
 
+def eof_configs_compatible(eof1: dict, eof2: dict) -> bool:
+    if not isinstance(eof1, dict) or not isinstance(eof2, dict):
+        return False
+    ignore_keys = {"reference_years"}
+    keys = set(eof1.keys()) | set(eof2.keys())
+    for k in keys - ignore_keys:
+        if eof1.get(k) != eof2.get(k):
+            return False
+    return True
+
+
 def write_manifest(
     args: argparse.Namespace,
     mode_configs: dict[str, dict[str, object]],
@@ -461,9 +476,11 @@ def write_manifest(
                 "climatology",
                 "monthly_nlead",
                 "target_grid",
-                "eof",
             )
-            if all(existing.get(key) == payload.get(key) for key in compatible_keys):
+            if (
+                all(existing.get(key) == payload.get(key) for key in compatible_keys)
+                and eof_configs_compatible(existing.get("eof", {}), payload.get("eof", {}))
+            ):
                 payload["sources"] = list(
                     dict.fromkeys([*existing.get("sources", []), *payload["sources"]])
                 )
@@ -591,6 +608,11 @@ def main() -> None:
         else:
             settings["obs_product"] = args.ts_obs_product
             settings["obs_var"] = args.ts_obs_var
+        settings["obs_years"] = [args.obs_start_year, args.obs_end_year]
+        settings["eof_reference_years"] = [
+            getattr(args, "eof_reference_start_year", args.obs_start_year),
+            getattr(args, "eof_reference_end_year", args.obs_end_year),
+        ]
     LOG.info("Modes: %s", ", ".join(args.modes))
     LOG.info("Sources: %s", ", ".join(args.sources))
     LOG.info("Output: %s", args.outdir)
