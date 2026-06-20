@@ -109,6 +109,25 @@ def test_make_projection_can_be_disabled_without_cartopy():
     assert name is None
 
 
+def test_mask_pattern_for_plot_applies_spatial_ocean_mask():
+    pattern = xr.DataArray(
+        np.arange(6, dtype=float).reshape(2, 3),
+        coords={"lat": [10, 20], "lon": [120, 130, 140]},
+        dims=("lat", "lon"),
+    )
+    ocean_mask = xr.DataArray(
+        [[True, False, True], [False, True, True]],
+        coords=pattern.coords,
+        dims=pattern.dims,
+    )
+
+    masked = movmaps.mask_pattern_for_plot(pattern, ocean_mask)
+
+    assert np.isnan(masked.sel(lat=10, lon=130))
+    assert np.isnan(masked.sel(lat=20, lon=120))
+    assert masked.sel(lat=10, lon=120) == pattern.sel(lat=10, lon=120)
+
+
 @pytest.mark.skipif(not movmaps.has_cartopy(), reason="Cartopy is unavailable")
 def test_make_projection_uses_mode_defaults_when_cartopy_is_available():
     _, nao_name = movmaps.make_projection("NAO")

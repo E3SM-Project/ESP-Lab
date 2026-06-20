@@ -131,32 +131,44 @@ def tick_values(projection_name, settings):
 
     Legacy projection-specific keys are still supported for compatibility.
     """
-    if "longitude_ticks" in settings and "latitude_ticks" in settings:
-        return settings["longitude_ticks"], settings["latitude_ticks"]
-
     if projection_name == "atlantic":
-        return (
-            settings.get("atlantic_longitude_ticks", np.arange(-90, 31, 30)),
-            settings.get("atlantic_latitude_ticks", np.arange(20, 81, 10)),
-        )
+        if (
+            "atlantic_longitude_ticks" in settings
+            and "atlantic_latitude_ticks" in settings
+        ):
+            return (
+                settings["atlantic_longitude_ticks"],
+                settings["atlantic_latitude_ticks"],
+            )
 
     if projection_name == "north_pacific":
-        return (
-            settings.get("north_pacific_longitude_ticks", np.array([120, 150, 180, 210, 240])),
-            settings.get("north_pacific_latitude_ticks", np.array([20, 30, 40, 50, 60, 70])),
-        )
+        if (
+            "north_pacific_longitude_ticks" in settings
+            and "north_pacific_latitude_ticks" in settings
+        ):
+            return (
+                settings["north_pacific_longitude_ticks"],
+                settings["north_pacific_latitude_ticks"],
+            )
 
     if projection_name in {"pacific_global", "atlantic_global"}:
-        return (
-            settings.get("global_longitude_ticks", np.arange(-180, 181, 60)),
-            settings.get("global_latitude_ticks", np.arange(-60, 61, 30)),
-        )
+        if (
+            "global_longitude_ticks" in settings
+            and "global_latitude_ticks" in settings
+        ):
+            return (
+                settings["global_longitude_ticks"],
+                settings["global_latitude_ticks"],
+            )
+
+    if "longitude_ticks" in settings and "latitude_ticks" in settings:
+        return settings["longitude_ticks"], settings["latitude_ticks"]
 
     return (
         settings.get("longitude_ticks", np.arange(-180, 181, 60)),
         settings.get("latitude_ticks", np.arange(-90, 91, 20)),
     )
-    
+
 def set_extent(ax, projection_name, extent, data_projection):
     if projection_name in {"pacific_global", "atlantic_global"}:
         ax.set_global()
@@ -434,6 +446,68 @@ def figure_filename(*parts, ext="png"):
     return "_".join(clean) + f".{ext.lstrip('.').lower()}"
 
 
+def save_figure(fig, figpath, *, mode, metric, title="", caption="", dpi=150, **extra):
+    """Save a figure and upsert its entry in the figures.json manifest.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to save.
+    figpath : pathlib.Path or str
+        Full path where the PNG will be written.
+    mode : str
+        Mode name (e.g. ``"NAO"``).
+    metric : str
+        Metric / figure-type key (e.g. ``"skill"`` or ``"eof_patterns"``).
+    title : str, optional
+        Short human-readable title for the webpage.
+    caption : str, optional
+        Longer caption carrying runtime details (years, baseline, reference …).
+    dpi : int, optional
+        Resolution for the saved PNG (default 150).
+    **extra
+        Any additional key-value pairs to store in the manifest entry.
+    """
+    import json
+    import datetime
+    from pathlib import Path
+
+    figpath = Path(figpath)
+    fig.savefig(figpath, dpi=dpi, bbox_inches="tight")
+
+    manifest_path = figpath.parent / "figures.json"
+
+    # Load existing manifest or start fresh
+    if manifest_path.exists():
+        with open(manifest_path) as fh:
+            manifest = json.load(fh)
+    else:
+        manifest = {"figures": []}
+
+    # Upsert: replace existing entry for same file, or append
+    filename = figpath.name
+    entry = {
+        "file": filename,
+        "mode": mode,
+        "metric": metric,
+        "title": title,
+        "caption": caption,
+        **extra,
+    }
+    figures = manifest.get("figures", [])
+    idx = next((i for i, e in enumerate(figures) if e.get("file") == filename), None)
+    if idx is not None:
+        figures[idx] = entry
+    else:
+        figures.append(entry)
+
+    manifest["figures"] = figures
+    manifest["updated"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    with open(manifest_path, "w") as fh:
+        json.dump(manifest, fh, indent=2)
+
+
 # -----------------------------------------------------------------------------
 # Data/plot helpers for MOV EOF-pattern panels
 # -----------------------------------------------------------------------------
@@ -456,6 +530,21 @@ def add_cyclic_longitude_for_plot(data_array):
     cyclic = xr.concat([data_array, data_array.isel(lon=0)], dim="lon")
     cyclic_lon = np.concatenate([lon.values, [float(lon.values[-1]) + lon_step]])
     return cyclic.assign_coords(lon=cyclic_lon)
+
+
+def mask_pattern_for_plot(data_array, mask=None):
+    """Return a spatially masked pattern for plotting.
+
+    The mask may be a 2-D lat/lon array or may include already-selected
+    non-spatial dimensions. Grid cells where the mask is false are set to NaN.
+    """
+    if mask is None:
+        return data_array
+
+    import xarray as xr
+
+    pattern, plot_mask = xr.align(data_array, mask.astype(bool), join="exact")
+    return pattern.where(plot_mask)
 
 
 def spatial_pattern_metrics(model_pattern, reference_pattern):

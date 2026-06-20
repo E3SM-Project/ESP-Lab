@@ -202,6 +202,18 @@ def parse_args() -> argparse.Namespace:
         help="Confidence level for gridpoint regression significance masks.",
     )
     parser.add_argument(
+        "--sst-ocean-mask-min-valid-fraction",
+        "--sst_ocean_mask_min_valid_fraction",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "--sst-ocean-mask-resolution",
+        "--sst_ocean_mask_resolution",
+        choices=("110m", "50m", "10m"),
+        default="110m",
+    )    
+    parser.add_argument(
         "--e3sm-data-dir", default="/global/cfs/cdirs/e3sm/S2S2D/post_process"
     )
     parser.add_argument(
@@ -714,12 +726,88 @@ def get_lat_lon_names(
 
     return lat_name, lon_name
 
+def _as_bool_mask(mask: xr.DataArray, name: str = "mask") -> xr.DataArray:
+    """Return a clean boolean mask with missing values treated as False."""
+    result = mask.fillna(False).astype(bool)
+    result.name = name
+    return result
+
+
+def align_spatial_mask(
+    mask: xr.DataArray,
+    target: xr.DataArray,
+    *,
+    mask_name: str = "mask",
+) -> xr.DataArray:
+    """Align a 2D lat/lon mask to a target field.
+
+    The workflow normally builds all products on the same regular target grid,
+    so this should be an exact coordinate alignment.  The nearest-neighbor
+    fallback makes the mask robust to tiny coordinate-rounding differences after
+    regridding or NetCDF read/write cycles while still failing for genuinely
+    incompatible grids.
+    """
+    mask = _as_bool_mask(mask, mask_name)
+    lat_name, lon_name = get_lat_lon_names(mask)
+    target_lat_name, target_lon_name = get_lat_lon_names(target)
+
+    if lat_name != "lat" or lon_name != "lon":
+        mask = mask.rename({lat_name: "lat", lon_name: "lon"})
+    if target_lat_name != "lat" or target_lon_name != "lon":
+        target = target.rename({target_lat_name: "lat", target_lon_name: "lon"})
+
+    mask = mask.sortby("lat").sortby("lon")
+    target_lat = target["lat"]
+    target_lon = target["lon"]
+
+    try:
+        aligned = mask.reindex(lat=target_lat, lon=target_lon)
+        if bool(aligned.notnull().all().compute()):
+            return _as_bool_mask(aligned, mask_name)
+    except Exception:
+        pass
+
+    # Coordinate values may differ by roundoff.  Use a conservative tolerance:
+    # smaller than half a grid interval, but never smaller than 1e-8 degrees.
+    def _tolerance(values: xr.DataArray) -> float:
+        arr = np.asarray(values, dtype=float)
+        if arr.size < 2:
+            return 1.0e-8
+        spacing = float(np.nanmedian(np.abs(np.diff(np.sort(arr)))))
+        return max(1.0e-8, spacing * 1.0e-3)
+
+    lat_tol = _tolerance(target_lat)
+    lon_tol = _tolerance(target_lon)
+    aligned = mask.reindex(
+        lat=target_lat,
+        lon=target_lon,
+        method="nearest",
+        tolerance={"lat": lat_tol, "lon": lon_tol},
+    )
+    if not bool(aligned.notnull().all().compute()):
+        missing = int(aligned.isnull().sum().compute())
+        raise ValueError(
+            f"Could not align {mask_name!r} to target grid; {missing} mask "
+            "points are missing after nearest-neighbor alignment."
+        )
+    return _as_bool_mask(aligned, mask_name)
+
+
 def generate_reference_ocean_mask(
     data: xr.DataArray,
     min_valid_fraction: float = 0.5,
     natural_earth_resolution: str = "110m",
 ) -> xr.DataArray:
-    """Generate robust ocean mask on the analysis grid."""
+    """Generate a robust ocean mask on the analysis grid for SST modes.
+
+    A grid cell is retained only when it is frequently finite in the reference
+    SST product and it is not classified as land by Natural Earth.  This avoids
+    contaminating PDO/NPGO/AMO EOFs with finite land/ice-fill values introduced
+    by preprocessing or regridding.
+    """
+    if not 0.0 <= min_valid_fraction <= 1.0:
+        raise ValueError("min_valid_fraction must lie between 0 and 1.")
+
     import regionmask
 
     lat_name, lon_name = get_lat_lon_names(data)
@@ -748,16 +836,30 @@ def generate_reference_ocean_mask(
         )
 
     land = land_lookup[natural_earth_resolution]
-
-    land_mask = land.mask(
-        data[lon_name],
-        data[lat_name],
-    )
-
+    land_mask = land.mask(data[lon_name], data[lat_name])
     geometry_ocean = land_mask.isnull()
 
-    ocean_mask = (obs_ocean & geometry_ocean).fillna(False)
-    return ocean_mask.rename("ocean_mask")
+    ocean_mask = _as_bool_mask(obs_ocean & geometry_ocean, "ocean_mask")
+    if lat_name != "lat" or lon_name != "lon":
+        ocean_mask = ocean_mask.rename({lat_name: "lat", lon_name: "lon"})
+    ocean_mask = ocean_mask.sortby("lat").sortby("lon")
+
+    n_ocean = int(ocean_mask.sum().compute())
+    n_total = int(ocean_mask.size)
+    if n_ocean < 2:
+        raise ValueError(
+            "Reference SST ocean mask retained fewer than two grid cells. "
+            "Check the input SST missing-value convention, coordinate names, "
+            "and --sst-ocean-mask-min-valid-fraction."
+        )
+    LOG.info(
+        "Reference SST ocean mask retained %s/%s grid cells (%.1f%%).",
+        n_ocean,
+        n_total,
+        100.0 * n_ocean / max(n_total, 1),
+    )
+    return ocean_mask
+
 
 def prepare_domain(
     data: xr.DataArray,
@@ -775,7 +877,18 @@ def prepare_domain(
     dataset = bounded_dataset(select_mode_domain(working, settings), "mode_field")
 
     if valid_mask is not None:
-        dataset["mode_field"] = dataset["mode_field"].where(valid_mask)
+        aligned_mask = align_spatial_mask(
+            valid_mask,
+            dataset["mode_field"],
+            mask_name="valid_mask",
+        )
+        retained = int(aligned_mask.sum().compute())
+        if retained < 2:
+            raise ValueError(
+                f"{settings['mode']} valid_mask retained fewer than two grid cells "
+                "inside the mode domain."
+            )
+        dataset["mode_field"] = dataset["mode_field"].where(aligned_mask)
 
     if remove_domain_mean:
         dataset["mode_field"] = dataset["mode_field"] - spatial_mean(
@@ -783,6 +896,43 @@ def prepare_domain(
         )
 
     return dataset
+
+
+def prepare_reference_domain(
+    sample: xr.DataArray,
+    settings: dict[str, object],
+    args: argparse.Namespace,
+) -> tuple[xr.Dataset, xr.DataArray | None]:
+    """Prepare a reference EOF domain and apply the SST ocean mask before EOFs."""
+    prepared = prepare_domain(sample, settings, args.remove_domain_mean)
+    ocean_mask = None
+
+    if str(settings["mode"]) in TEMPERATURE_MODES:
+        ocean_mask = generate_reference_ocean_mask(
+            prepared["mode_field"],
+            min_valid_fraction=float(
+                getattr(args, "sst_ocean_mask_min_valid_fraction", 0.5)
+            ),
+            natural_earth_resolution=str(
+                getattr(args, "sst_ocean_mask_resolution", "110m")
+            ),
+        )
+        ocean_mask = align_spatial_mask(
+            ocean_mask,
+            prepared["mode_field"],
+            mask_name="ocean_mask",
+        )
+        prepared["mode_field"] = prepared["mode_field"].where(ocean_mask)
+        retained = int(prepared["mode_field"].notnull().any("time").sum().compute())
+        if retained < 2:
+            raise ValueError(
+                f"{settings['mode']} reference ocean mask retained fewer than two "
+                "valid grid cells after applying it to the SST anomalies."
+            )
+
+    prepared = eof_ready_dataset(prepared, "mode_field")
+    return prepared, ocean_mask
+
 
 def pcmdi_mode_reference(
     anomalies: xr.DataArray,
@@ -792,25 +942,20 @@ def pcmdi_mode_reference(
     pcs, patterns, fractions, north_diagnostics, bootstrap_diagnostics = (
         [], [], [], [], []
     )
+    ocean_masks = []
     references: dict[int, dict[str, object]] = {}
     eof_number = int(settings["eof_number"])
 
     for month in range(1, 13):
         sample = anomalies.where(anomalies.time.dt.month == month, drop=True).load()
-
-        prepared = eof_ready_dataset(
-            prepare_domain(sample, settings, args.remove_domain_mean),
-            "mode_field",
-        )
-
-        ocean_mask = None
-        if settings["mode"] in TEMPERATURE_MODES:
-            ocean_mask = generate_reference_ocean_mask(
-                prepared["mode_field"],
-                min_valid_fraction=0.5,
-                natural_earth_resolution="110m",
+        if sample.sizes.get("time", 0) < 3:
+            raise ValueError(
+                f"{settings['mode']} reference EOF month {month:02d} has fewer "
+                "than three samples. Check EOF reference years and input data."
             )
-        
+
+        prepared, ocean_mask = prepare_reference_domain(sample, settings, args)
+
         pattern, pc, fraction, reverse_sign, solver = eof_analysis_with_svd_fallback(
             str(settings["mode"]),
             prepared,
@@ -832,6 +977,8 @@ def pcmdi_mode_reference(
                 target_month=[month]
             )
         )
+        if ocean_mask is not None:
+            ocean_masks.append(ocean_mask.expand_dims(target_month=[month]))
 
         bootstrap_patterns = None
         if args.eof_bootstrap_iterations:
@@ -855,8 +1002,9 @@ def pcmdi_mode_reference(
             )
 
         valid_mask = prepared["mode_field"].notnull().all("time")
-        if settings["mode"] in TEMPERATURE_MODES:
+        if ocean_mask is not None:
             valid_mask = valid_mask & ocean_mask
+        valid_mask = _as_bool_mask(valid_mask, "valid_mask")
 
         references[month] = {
             "solver": solver,
@@ -877,13 +1025,28 @@ def pcmdi_mode_reference(
 
     result = xr.merge([result, xr.concat(north_diagnostics, "target_month")])
 
+    if ocean_masks:
+        result["mode_ocean_mask"] = xr.concat(ocean_masks, "target_month").astype("int8")
+        result["mode_ocean_mask"].attrs.update(
+            long_name="Reference ocean mask applied before SST EOF analysis",
+            description=(
+                "1=ocean grid cell retained for SST-mode EOF/reference projection; "
+                "0=land or insufficient valid observed SST samples"
+            ),
+            min_valid_fraction=float(
+                getattr(args, "sst_ocean_mask_min_valid_fraction", 0.5)
+            ),
+            natural_earth_resolution=str(
+                getattr(args, "sst_ocean_mask_resolution", "110m")
+            ),
+        )
+
     if bootstrap_diagnostics:
         result = xr.merge(
             [result, xr.concat(bootstrap_diagnostics, "target_month")]
         )
 
     return result, references
-
 
 def target_month(valid_time: xr.DataArray, lead: int) -> int:
     values = np.asarray(valid_time.sel(L=lead).dt.month).ravel().astype(int)
