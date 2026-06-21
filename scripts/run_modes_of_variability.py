@@ -30,7 +30,7 @@ from workflows import modes_of_variability_core as core
 
 
 LOG = logging.getLogger(__name__)
-PRODUCT_CONFIGURATION_SCHEMA = 5
+PRODUCT_CONFIGURATION_SCHEMA = 6
 
 
 def configuration_signature(
