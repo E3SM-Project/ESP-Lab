@@ -380,6 +380,23 @@ def select_mode_domain(data: xr.DataArray, settings: dict[str, object]) -> xr.Da
     ).sortby("lon")
 
 
+def global_sst_for_regression(
+    data: xr.DataArray,
+    *,
+    ocean_mask: xr.DataArray | None = None,
+) -> xr.DataArray:
+    """Return a full-map SST field for teleconnection regression maps."""
+    field = data.where(np.isfinite(data)).sortby("lat").sortby("lon")
+    if ocean_mask is not None:
+        aligned_mask = align_spatial_mask(
+            ocean_mask,
+            field,
+            mask_name="global_ocean_mask",
+        )
+        field = field.where(aligned_mask)
+    return bounded_dataset(field, "mode_field")["mode_field"]
+
+
 def validate_spatial_coordinates(
     dataset: xr.Dataset | xr.DataArray,
     context: str,
@@ -942,6 +959,11 @@ def pcmdi_mode_reference(
     pcs, patterns, fractions, north_diagnostics, bootstrap_diagnostics = (
         [], [], [], [], []
     )
+    global_regression_patterns = []
+    global_regression_pvalues = []
+    global_regression_significant = []
+    global_regression_r_values = []
+    global_ocean_masks = []
     ocean_masks = []
     references: dict[int, dict[str, object]] = {}
     eof_number = int(settings["eof_number"])
@@ -972,6 +994,52 @@ def pcmdi_mode_reference(
         pcs.append(pc)
         patterns.append(pattern.expand_dims(target_month=[month]))
         fractions.append(fraction.expand_dims(target_month=[month]))
+
+        global_pattern = None
+        global_ocean_mask = None
+        if str(settings["mode"]) in TEMPERATURE_MODES:
+            global_field = global_sst_for_regression(sample)
+            global_ocean_mask = generate_reference_ocean_mask(
+                global_field,
+                min_valid_fraction=float(
+                    getattr(args, "sst_ocean_mask_min_valid_fraction", 0.5)
+                ),
+                natural_earth_resolution=str(
+                    getattr(args, "sst_ocean_mask_resolution", "110m")
+                ),
+            )
+            global_field = global_sst_for_regression(
+                sample,
+                ocean_mask=global_ocean_mask,
+            )
+            global_regression_ds = regression_pattern_from_projected_pc(
+                global_field,
+                pc,
+                confidence_level=float(getattr(args, "regression_confidence", 0.95)),
+            )
+            global_pattern = global_regression_ds["mode_regression_pattern"]
+            global_regression_patterns.append(
+                global_pattern.expand_dims(target_month=[month])
+            )
+            global_regression_pvalues.append(
+                global_regression_ds["mode_regression_pvalue"].expand_dims(
+                    target_month=[month]
+                )
+            )
+            global_regression_significant.append(
+                global_regression_ds["mode_regression_significant"].expand_dims(
+                    target_month=[month]
+                )
+            )
+            global_regression_r_values.append(
+                global_regression_ds["mode_regression_r"].expand_dims(
+                    target_month=[month]
+                )
+            )
+            global_ocean_masks.append(
+                global_ocean_mask.expand_dims(target_month=[month]).astype("int8")
+            )
+
         north_diagnostics.append(
             north_eigenvalue_diagnostics(solver, eof_number).expand_dims(
                 target_month=[month]
@@ -1011,7 +1079,9 @@ def pcmdi_mode_reference(
             "reverse_sign": reverse_sign,
             "valid_mask": valid_mask,
             "ocean_mask": ocean_mask,
+            "global_ocean_mask": global_ocean_mask,
             "pattern": pattern,
+            "global_pattern": global_pattern,
             "bootstrap_patterns": bootstrap_patterns,
         }
 
@@ -1038,6 +1108,33 @@ def pcmdi_mode_reference(
             ),
             natural_earth_resolution=str(
                 getattr(args, "sst_ocean_mask_resolution", "110m")
+            ),
+        )
+
+    if global_regression_patterns:
+        result["mode_global_regression_pattern"] = xr.concat(
+            global_regression_patterns, "target_month"
+        )
+        result["mode_global_regression_pvalue"] = xr.concat(
+            global_regression_pvalues, "target_month"
+        )
+        result["mode_global_regression_significant"] = xr.concat(
+            global_regression_significant, "target_month"
+        ).astype("int8")
+        result["mode_global_regression_r"] = xr.concat(
+            global_regression_r_values, "target_month"
+        )
+        result["mode_global_ocean_mask"] = xr.concat(
+            global_ocean_masks, "target_month"
+        ).astype("int8")
+        result["mode_global_regression_pattern"].attrs.update(
+            long_name=(
+                "Full-map SST regression pattern onto the observed EOF principal "
+                "component"
+            ),
+            description=(
+                "Computed for SST modes so PDO/AMO diagnostics can display global "
+                "teleconnection maps while retaining regional EOF-domain PCs."
             ),
         )
 
@@ -1181,21 +1278,23 @@ def pcmdi_mode_model(
     if eof_strategy not in {"fixed_obs_projection", "conventional"}:
         raise ValueError(f"Unsupported eof_strategy={eof_strategy!r}")
 
-    (
-        cbf_pcs,
-        conventional_pcs,
-        patterns,
-        fractions,
-        months,
-        north_diagnostics,
-        bootstrap_diagnostics,
-        reference_rmses,
-        reference_pccs,
-        regression_patterns,
-        regression_pvalues,
-        regression_significant,
-        regression_r_values,
-    ) = ([], [], [], [], [], [], [], [], [], [], [], [], [])
+    cbf_pcs = []
+    conventional_pcs = []
+    patterns = []
+    fractions = []
+    months = []
+    north_diagnostics = []
+    bootstrap_diagnostics = []
+    reference_rmses = []
+    reference_pccs = []
+    regression_patterns = []
+    regression_pvalues = []
+    regression_significant = []
+    regression_r_values = []
+    global_regression_patterns = []
+    global_regression_pvalues = []
+    global_regression_significant = []
+    global_regression_r_values = []
     eof_number = int(settings["eof_number"])
     for lead_value in anomalies.L.values:
         lead = int(lead_value)
@@ -1255,8 +1354,42 @@ def pcmdi_mode_model(
         regression_pvalues.append(regression_ds["mode_regression_pvalue"].expand_dims(L=[lead]))
         regression_significant.append(regression_ds["mode_regression_significant"].expand_dims(L=[lead]))
         regression_r_values.append(regression_ds["mode_regression_r"].expand_dims(L=[lead]))
+
+        metric_pattern = regression_pattern
+        metric_reference = reference["pattern"]
+        if str(settings["mode"]) in TEMPERATURE_MODES:
+            global_field = global_sst_for_regression(
+                sample,
+                ocean_mask=reference.get("global_ocean_mask"),
+            )
+            global_regression_ds = regression_pattern_from_projected_pc(
+                global_field,
+                pc_time,
+                confidence_level=float(getattr(args, "regression_confidence", 0.95)),
+            )
+            global_regression_pattern = global_regression_ds[
+                "mode_regression_pattern"
+            ]
+            global_regression_patterns.append(
+                global_regression_pattern.expand_dims(L=[lead])
+            )
+            global_regression_pvalues.append(
+                global_regression_ds["mode_regression_pvalue"].expand_dims(L=[lead])
+            )
+            global_regression_significant.append(
+                global_regression_ds["mode_regression_significant"].expand_dims(
+                    L=[lead]
+                )
+            )
+            global_regression_r_values.append(
+                global_regression_ds["mode_regression_r"].expand_dims(L=[lead])
+            )
+            if reference.get("global_pattern") is not None:
+                metric_pattern = global_regression_pattern
+                metric_reference = reference["global_pattern"]
+
         reference_rmse, reference_pcc = cosine_weighted_pattern_metrics(
-            regression_pattern, reference["pattern"]
+            metric_pattern, metric_reference
         )
         reference_rmses.append(reference_rmse)
         reference_pccs.append(reference_pcc)
@@ -1327,6 +1460,24 @@ def pcmdi_mode_model(
             reference_pccs, dims="L", coords={"L": anomalies.L}
         ),
     }
+
+    if global_regression_patterns:
+        result_data.update(
+            {
+                "mode_global_regression_pattern": xr.concat(
+                    global_regression_patterns, "L"
+                ),
+                "mode_global_regression_pvalue": xr.concat(
+                    global_regression_pvalues, "L"
+                ),
+                "mode_global_regression_significant": xr.concat(
+                    global_regression_significant, "L"
+                ).astype("int8"),
+                "mode_global_regression_r": xr.concat(
+                    global_regression_r_values, "L"
+                ),
+            }
+        )
 
     if eof_strategy == "fixed_obs_projection":
         # Backward-compatible aliases for plotting scripts that expect mode_pattern.

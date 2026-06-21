@@ -32,9 +32,9 @@ DEFAULT_PROJECTION_BY_MODE = {
     "PSA1": "south_polar",
     "PSA2": "south_polar",
     "NPO": "north_pacific",
-    "PDO": "pacific_global",
+    "PDO": "north_pacific",
     "NPGO": "north_pacific",
-    "AMO": "atlantic_global",
+    "AMO": "atlantic",
 }
 
 
@@ -56,7 +56,8 @@ def make_projection(
     projection_by_mode : dict, optional
         Mapping from mode name to projection family.
     albers_projection_by_mode : dict, optional
-        Mapping from mode name to AlbersEqualArea keyword arguments.
+        Mapping from mode name to projection keyword arguments.  Historical
+        name retained for notebook compatibility.
     use_cartopy : bool
         If False, return plain matplotlib axes.
     """
@@ -69,27 +70,43 @@ def make_projection(
 
     projection_name = projection_by_mode.get(mode, "platecarree")
 
-    if projection_name in {"north_pacific", "atlantic"}:
+    if projection_name in {"north_pacific", "atlantic", "south_pacific"}:
         default_albers = {
-            "central_longitude": 180 if projection_name == "north_pacific" else -30,
-            "central_latitude": 40 if projection_name == "north_pacific" else 50,
-            "standard_parallels": (20, 60)
-            if projection_name == "north_pacific"
-            else (30, 70),
+            "north_pacific": {
+                "central_longitude": 180,
+                "central_latitude": 40,
+                "standard_parallels": (20, 60),
+            },
+            "atlantic": {
+                "central_longitude": -30,
+                "central_latitude": 50,
+                "standard_parallels": (30, 70),
+            },
+            "south_pacific": {
+                "central_longitude": -120,
+                "central_latitude": -50,
+                "standard_parallels": (-65, -30),
+            },
         }
 
         params = {
-            **default_albers,
+            **default_albers[projection_name],
             **albers_projection_by_mode.get(mode, {}),
         }
 
         return ccrs.AlbersEqualArea(**params), projection_name
 
     if projection_name == "north_polar":
-        return ccrs.NorthPolarStereo(), projection_name
+        return (
+            ccrs.NorthPolarStereo(**albers_projection_by_mode.get(mode, {})),
+            projection_name,
+        )
 
     if projection_name == "south_polar":
-        return ccrs.SouthPolarStereo(), projection_name
+        return (
+            ccrs.SouthPolarStereo(**albers_projection_by_mode.get(mode, {})),
+            projection_name,
+        )
 
     if projection_name == "pacific":
         return ccrs.PlateCarree(central_longitude=180), projection_name
@@ -114,12 +131,10 @@ def mode_extent(mode, pattern):
     lat_max = float(pattern.lat.max())
     if mode == "NAM":
         return [-180, 180, max(20, lat_min), 90]
-    if mode == "SAM":
+    if mode in {"SAM", "PSA1", "PSA2"}:
         return [-180, 180, -90, min(-20, lat_max)]
-    if mode in {"NPO", "NPGO"}:
+    if mode in {"NPO", "PDO", "NPGO"}:
         return [120, 240, 15, 75]
-    if mode in {"PDO", "NPGO", "AMO"}:
-        return [-180, 180, -90, 90]
     return [lon_min, lon_max, lat_min, lat_max]
 
 
@@ -210,6 +225,14 @@ def format_longitude_label(lon):
     return f"{abs(lon):g}°{suffix}"
 
 
+def format_latitude_label(lat):
+    lat = float(lat)
+    if np.isclose(lat, 0):
+        return "0°"
+    suffix = "N" if lat > 0 else "S"
+    return f"{abs(lat):g}°{suffix}"
+
+
 def add_polar_longitude_labels(
     ax,
     mode,
@@ -220,10 +243,40 @@ def add_polar_longitude_labels(
     label_offset,
     fontsize,
     color="0.25",
+    skip_longitudes=None,
+    label_position="data_edge",
+    axes_radius=0.56,
+    central_longitude=0.0,
 ):
-    """Draw longitude labels around NAM/SAM polar panels."""
-    if mode not in {"NAM", "SAM"}:
+    """Draw longitude labels around polar panels."""
+    if mode not in {"NAM", "SAM", "PSA1", "PSA2"}:
         return
+    skip_longitudes = [] if skip_longitudes is None else skip_longitudes
+
+    if label_position == "outside_axes":
+        for lon in longitude_ticks:
+            if any(np.isclose(lon, skip_lon) for skip_lon in skip_longitudes):
+                continue
+            # South polar maps put 180 deg near the bottom and 0 deg near
+            # the top.  North polar maps use the opposite visual orientation.
+            if mode == "NAM":
+                angle = np.deg2rad(float(lon) - float(central_longitude) - 90.0)
+            else:
+                angle = np.deg2rad(90.0 - (float(lon) - float(central_longitude)))
+            ax.text(
+                0.5 + float(axes_radius) * np.cos(angle),
+                0.5 + float(axes_radius) * np.sin(angle),
+                format_longitude_label(lon),
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=fontsize,
+                color=color,
+                clip_on=False,
+                zorder=22,
+            )
+        return
+
     if mode == "NAM":
         label_lat = extent[2] + label_offset
         va = "top"
@@ -232,7 +285,7 @@ def add_polar_longitude_labels(
         va = "bottom"
 
     for lon in longitude_ticks:
-        if np.isclose(lon, 180):
+        if any(np.isclose(lon, skip_lon) for skip_lon in skip_longitudes):
             continue
         ax.text(
             float(lon),
@@ -244,6 +297,94 @@ def add_polar_longitude_labels(
             fontsize=fontsize,
             color=color,
             clip_on=False,
+        )
+
+
+def add_polar_latitude_labels(
+    ax,
+    mode,
+    *,
+    latitude_ticks,
+    label_longitude,
+    data_projection,
+    fontsize,
+    color="0.25",
+    axes_angle_degrees=None,
+    label_position="radial",
+    side_x=1.035,
+):
+    """Draw latitude-ring labels inside polar panels."""
+    if mode not in {"NAM", "SAM", "PSA1", "PSA2"}:
+        return
+
+    if label_position == "side":
+        labels = [format_latitude_label(lat) for lat in latitude_ticks]
+        if not labels:
+            return
+        x_position = float(side_x)
+        y_positions = np.linspace(0.35, 0.65, len(labels))
+        for y, label in zip(y_positions, labels):
+            ax.text(
+                x_position,
+                y,
+                label,
+                transform=ax.transAxes,
+                ha="left",
+                va="center",
+                fontsize=fontsize,
+                color=color,
+                clip_on=False,
+                zorder=21,
+            )
+        return
+
+    if axes_angle_degrees is not None:
+        angle = np.deg2rad(float(axes_angle_degrees))
+        if mode == "NAM":
+            max_radius_lat = 20.0
+            radial = (90.0 - np.asarray(latitude_ticks, dtype=float)) / (
+                90.0 - max_radius_lat
+            )
+        else:
+            max_radius_lat = -20.0
+            radial = (np.asarray(latitude_ticks, dtype=float) + 90.0) / (
+                max_radius_lat + 90.0
+            )
+
+        for lat, radius_fraction in zip(latitude_ticks, radial):
+            if not np.isfinite(radius_fraction):
+                continue
+            radius = 0.5 * float(np.clip(radius_fraction, 0.0, 1.0))
+            ax.text(
+                0.5 + radius * np.cos(angle),
+                0.5 + radius * np.sin(angle),
+                format_latitude_label(lat),
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=fontsize,
+                color=color,
+                clip_on=False,
+                zorder=21,
+            )
+        return
+
+    for lat in latitude_ticks:
+        if mode == "NAM" and lat >= 89:
+            continue
+        if mode != "NAM" and lat <= -89:
+            continue
+        ax.text(
+            float(label_longitude),
+            float(lat),
+            format_latitude_label(lat),
+            transform=data_projection,
+            ha="center",
+            va="center",
+            fontsize=fontsize,
+            color=color,
+            clip_on=True,
+            zorder=21,
         )
 
 
@@ -397,7 +538,9 @@ def configure_gridlines(
         return gridliner
 
     if is_polar or label_strategy == "polar":
-        if row in section_last_rows:
+        if row in section_last_rows or settings.get(
+            "polar_longitude_labels_each_panel", False
+        ):
             add_polar_longitude_labels(
                 ax,
                 mode,
@@ -406,6 +549,28 @@ def configure_gridlines(
                 longitude_ticks=settings.get("polar_longitude_ticks", longitude_ticks),
                 label_offset=settings.get("polar_longitude_label_offset", 2.5),
                 fontsize=fontsize,
+                color=settings.get("polar_label_color", "0.25"),
+                skip_longitudes=settings.get("polar_longitude_skip", []),
+                label_position=settings.get("polar_longitude_label_position", "data_edge"),
+                axes_radius=settings.get("polar_longitude_label_radius", 0.56),
+                central_longitude=settings.get("polar_central_longitude", 0.0),
+            )
+        if settings.get("draw_polar_latitude_labels", True) and (
+            col == 0
+            or not settings.get("label_left_column_only", True)
+            or settings.get("polar_latitude_labels_each_panel", False)
+        ):
+            add_polar_latitude_labels(
+                ax,
+                mode,
+                latitude_ticks=settings.get("polar_latitude_ticks", latitude_ticks),
+                label_longitude=settings.get("polar_latitude_label_longitude", 0),
+                data_projection=data_projection,
+                fontsize=fontsize,
+                color=settings.get("polar_label_color", "0.25"),
+                axes_angle_degrees=settings.get("polar_latitude_label_angle"),
+                label_position=settings.get("polar_latitude_label_position", "radial"),
+                side_x=settings.get("polar_latitude_label_x", 1.035),
             )
         return gridliner
 
