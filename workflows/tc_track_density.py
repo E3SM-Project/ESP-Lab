@@ -18,9 +18,12 @@ Two methods are available:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import re
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 
@@ -308,3 +311,94 @@ def make_track_id_from_2d_or_3d_shape(shape, year_offset: int = 0, ensemble_offs
         return np.broadcast_to(track_id, shape)
 
     raise ValueError(f"Unsupported shape {shape}; expected 2D or 3D trajectory arrays")
+
+
+def read_stitch_nodes_tracks(track_files: list[str | Path], workflows_dir=None) -> pd.DataFrame:
+    """
+    Parse a list of TempestExtremes StitchNodes track files and combine them into a single DataFrame.
+    """
+    all_dfs = []
+
+    for file_path in track_files:
+        path = Path(file_path)
+        if not path.exists():
+            continue
+
+        # Extract case and member from path parts:
+        # e.g., .../case/member/post/atm/tc-analysis/file
+        # case is at parts[-6], member is at parts[-5]
+        try:
+            member = path.parts[-5]
+            case = path.parts[-6]
+        except IndexError:
+            # Fallback if the path structure is different:
+            # try to parse from the filename which starts with case_member_
+            filename = path.name
+            match = re.search(r"_(EN\d+)_", filename)
+            if match:
+                member = match.group(1)
+                case = filename.split(f"_{member}_")[0]
+            else:
+                member = "unknown"
+                case = "unknown"
+
+        # Parse case initialization time:
+        try:
+            match_init = re.search(r"_(\d{10})$", case)
+            if match_init:
+                tag = match_init.group(1)
+                init_time = pd.Timestamp(
+                    year=int(tag[:4]), month=int(tag[4:6]),
+                    day=int(tag[6:8]), hour=int(tag[8:10]),
+                )
+            else:
+                init_time = pd.NaT
+        except Exception:
+            init_time = pd.NaT
+
+        rows = []
+        storm_id = -1
+
+        try:
+            with open(path) as fh:
+                for line in fh:
+                    s = line.strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    if s.startswith("start"):
+                        storm_id += 1
+                        continue
+
+                    parts = s.split()
+                    if len(parts) < 10:
+                        continue
+
+                    rows.append({
+                        "case": case,
+                        "member": member,
+                        "storm_id": storm_id,
+                        "node": int(float(parts[0])),
+                        "lon": float(parts[1]) % 360.0,
+                        "lat": float(parts[2]),
+                        "slp": float(parts[3]),
+                        "wind": float(parts[4]),
+                        "zs": float(parts[5]),
+                        "time": pd.Timestamp(
+                            year=int(parts[6]), month=int(parts[7]),
+                            day=int(parts[8]), hour=int(parts[9]),
+                        ),
+                        "init_time": init_time,
+                    })
+        except Exception as e:
+            print(f"Error parsing track file {path}: {e}")
+            continue
+
+        if rows:
+            all_dfs.append(pd.DataFrame(rows))
+
+    if all_dfs:
+        return pd.concat(all_dfs, ignore_index=True)
+    else:
+        return pd.DataFrame(columns=[
+            "case", "member", "storm_id", "node", "lon", "lat", "slp", "wind", "zs", "time", "init_time"
+        ])

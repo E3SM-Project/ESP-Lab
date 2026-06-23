@@ -102,6 +102,7 @@ PRESSURE_MODES = {
     "NAM", "NAO", "SAM", "PSA1", "PSA2", "PNA", "NPO", "EA", "SCA",
 }
 TEMPERATURE_MODES = {"PDO", "NPGO", "AMO"}
+WRITE_GLOBAL_TELECONNECTIONS_IN_INDEX_PRODUCTS = False
 
 
 @dataclass(frozen=True)
@@ -997,7 +998,10 @@ def pcmdi_mode_reference(
 
         global_pattern = None
         global_ocean_mask = None
-        if str(settings["mode"]) in TEMPERATURE_MODES:
+        if (
+            WRITE_GLOBAL_TELECONNECTIONS_IN_INDEX_PRODUCTS
+            and str(settings["mode"]) in TEMPERATURE_MODES
+        ):
             global_field = global_sst_for_regression(sample)
             global_ocean_mask = generate_reference_ocean_mask(
                 global_field,
@@ -1357,7 +1361,10 @@ def pcmdi_mode_model(
 
         metric_pattern = regression_pattern
         metric_reference = reference["pattern"]
-        if str(settings["mode"]) in TEMPERATURE_MODES:
+        if (
+            WRITE_GLOBAL_TELECONNECTIONS_IN_INDEX_PRODUCTS
+            and str(settings["mode"]) in TEMPERATURE_MODES
+        ):
             global_field = global_sst_for_regression(
                 sample,
                 ocean_mask=reference.get("global_ocean_mask"),
