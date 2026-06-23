@@ -238,7 +238,7 @@ def write_product(
         source_field=str(settings["field"]),
         frequency=str(settings["frequency"]),
         climatology=f"{args.clim_start}-{args.clim_end}",
-        processing_script="scripts/run_modes_of_variability.py",
+        processing_script="scripts/run_process_modes_of_variability.py",
         eof_method="PCMDI Metrics Package variability_mode",
         eof_strategy=getattr(args, "eof_strategy", "fixed_obs_projection"),
         model_pattern_definition=(
@@ -418,7 +418,7 @@ def write_manifest(
     payload = {
         "schema_version": PRODUCT_CONFIGURATION_SCHEMA,
         "created": datetime.now(timezone.utc).isoformat(),
-        "processing_script": "scripts/run_modes_of_variability.py",
+        "processing_script": "scripts/run_process_modes_of_variability.py",
         "sources": args.sources,
         "modes": mode_configs,
         "init_months": args.init_months,

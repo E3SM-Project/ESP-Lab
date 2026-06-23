@@ -20,25 +20,25 @@ users can choose any target grid.
 Usage
 -----
     # process everything with defaults: monthly and seasonal benchmarks
-    python preprocess_cesm_smyle_benchmark.py
+    python run_process_cesm_smyle_benchmark.py
 
     # process only monthly benchmarks, useful for Niño3.4 monthly skill
-    python preprocess_cesm_smyle_benchmark.py --fields TS --init-months 5 11 --freqs mon
+    python run_process_cesm_smyle_benchmark.py --fields TS --init-months 5 11 --freqs mon
 
     # process only TREFHT for May and November initializations
-    python preprocess_cesm_smyle_benchmark.py --fields TREFHT --init-months 5 11
+    python run_process_cesm_smyle_benchmark.py --fields TREFHT --init-months 5 11
 
     # overwrite existing output files
-    python preprocess_cesm_smyle_benchmark.py --force
+    python run_process_cesm_smyle_benchmark.py --force
 
     # generate sanity-check figures alongside the benchmark files
-    python preprocess_cesm_smyle_benchmark.py --verify
+    python run_process_cesm_smyle_benchmark.py --verify
 
     # dry run: print what would be done without writing anything
-    python preprocess_cesm_smyle_benchmark.py --dry-run
+    python run_process_cesm_smyle_benchmark.py --dry-run
 
     # use fewer ensemble members (e.g. for testing)
-    python preprocess_cesm_smyle_benchmark.py --nens 5 --fields TREFHT --init-months 5
+    python run_process_cesm_smyle_benchmark.py --nens 5 --fields TREFHT --init-months 5
 
 Batch job example (SLURM at NERSC)
 -----------------------------------
@@ -46,7 +46,7 @@ Batch job example (SLURM at NERSC)
     #SBATCH -N 1 -c 32 --time=04:00:00 -q regular -C cpu
     #SBATCH -A <your_account>
     conda activate e3sm_analysis
-    python workflows/preprocess_cesm_smyle_benchmark.py --workers 32 --verify
+    python scripts/run_process_cesm_smyle_benchmark.py --workers 32 --verify
 
 Notes
 -----
@@ -355,7 +355,7 @@ def _set_benchmark_metadata(
         "grid": "f09_g17 (0.9x1.25 FV)",
         "frequency": frequency,
         "processing": processing,
-        "created_by": "scripts/preprocess_cesm_smyle_benchmark.py",
+        "created_by": "scripts/run_process_cesm_smyle_benchmark.py",
     })
 
 def verify_benchmark(

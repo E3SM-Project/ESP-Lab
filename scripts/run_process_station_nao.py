@@ -8,9 +8,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 try:
-    from scripts.run_modes_of_variability import main
+    from scripts.run_process_modes_of_variability import main
 except ModuleNotFoundError:
-    from run_modes_of_variability import main
+    from run_process_modes_of_variability import main
 
 
 if "--modes" not in sys.argv:

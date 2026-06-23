@@ -7,7 +7,7 @@ import numpy as np
 import xarray as xr
 
 from workflows import modes_of_variability_core as core
-from scripts.run_modes_of_variability import (
+from scripts.run_process_modes_of_variability import (
     add_skill_lead_subset,
     cached_product_matches,
     configuration_signature,
