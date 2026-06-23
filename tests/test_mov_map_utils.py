@@ -27,17 +27,17 @@ def test_mode_extent_uses_pattern_bounds_for_regional_modes():
     assert movmaps.mode_extent("NAO", pattern) == [-90.0, 30.0, 20.0, 80.0]
 
 
-def test_mode_extent_uses_global_bounds_for_sst_modes():
-    pattern = _pattern(lon=(120, 280), lat=(-20, 70))
+def test_mode_extent_uses_pattern_bounds_for_amo():
+    pattern = _pattern(lon=(-90, 30), lat=(20, 80))
 
-    assert movmaps.mode_extent("PDO", pattern) == [-180, 180, -90, 90]
-    assert movmaps.mode_extent("AMO", pattern) == [-180, 180, -90, 90]
+    assert movmaps.mode_extent("AMO", pattern) == [-90.0, 30.0, 20.0, 80.0]
 
 
-def test_mode_extent_uses_north_pacific_sector_for_npo_npgo():
+def test_mode_extent_uses_north_pacific_sector_for_npo_pdo_npgo():
     pattern = _pattern(lon=(120, 280), lat=(-20, 80))
 
     assert movmaps.mode_extent("NPO", pattern) == [120, 240, 15, 75]
+    assert movmaps.mode_extent("PDO", pattern) == [120, 240, 15, 75]
     assert movmaps.mode_extent("NPGO", pattern) == [120, 240, 15, 75]
 
 
@@ -143,7 +143,7 @@ def test_make_projection_uses_mode_defaults_when_cartopy_is_available():
     assert pna_name == "north_polar"
     assert psa1_name == "south_polar"
     assert psa2_name == "south_polar"
-    assert pdo_name == "pacific_global"
+    assert pdo_name == "north_pacific"
     assert npo_name == "north_pacific"
     assert npgo_name == "north_pacific"
-    assert amo_name == "atlantic_global"
+    assert amo_name == "atlantic"
