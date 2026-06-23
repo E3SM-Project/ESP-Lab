@@ -1,7 +1,7 @@
 from pathlib import Path
 from subprocess import CompletedProcess
 
-from scripts import run_tc_track_e3sm as tc
+from scripts import run_process_tc_track_e3sm as tc
 
 
 def test_phis_static_rejects_scalar_time_metadata(tmp_path, monkeypatch):

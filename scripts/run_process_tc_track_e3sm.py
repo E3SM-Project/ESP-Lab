@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_tc_track_e3sm.py  --  TempestExtremes TC tracking for E3SM hindcasts.
+run_process_tc_track_e3sm.py  --  TempestExtremes TC tracking for E3SM hindcasts.
 
 Loops over hindcast cases (init tags) and ensemble members, running
 DetectNodes → StitchNodes → HistogramNodes.
@@ -26,18 +26,18 @@ where ``stream_tag`` defaults to ``eam.h2`` (6-hourly TC fields) and
 
 Example — native grid (ne30pg2, default)
 -----------------------------------------
-  python workflows/run_tc_track_e3sm.py \\
+  python scripts/run_process_tc_track_e3sm.py \\
       --cases WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce_1980110100 \\
       --members EN01 EN02 --parset set2 --dry-run
 
   # All members, real run (ne30pg2 connect file is the default):
-  python workflows/run_tc_track_e3sm.py \\
+  python scripts/run_process_tc_track_e3sm.py \\
       --cases WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce_1980110100 \\
       --workers 10
 
 Example — structured lat-lon grid (post-processed output)
 ----------------------------------------------------------
-  python workflows/run_tc_track_e3sm.py \\
+  python scripts/run_process_tc_track_e3sm.py \\
       --cases MY_LATLON_CASE \\
       --stream-tag eam.h2_180x360 \\
       --connect-file '' \\
