@@ -5,7 +5,9 @@ from pathlib import Path
 import sys
 import os
 
-sys.path.append("/global/homes/z/zhan391/code/ESP-Lab")
+# Append project root to sys.path
+project_root = Path(__file__).resolve().parents[1]
+sys.path.append(str(project_root))
 from workflows.tc_track_density import read_stitch_nodes_tracks
 
 TRACK_DIR = Path("/global/cfs/cdirs/e3sm/S2S2D/post_process")
@@ -40,5 +42,6 @@ from matplotlib.lines import Line2D
 legend_elements = [Line2D([0], [0], color=c, lw=2, label=s) for s, c in colors.items()]
 ax.legend(handles=legend_elements, loc='lower left')
 ax.set_title(f"TC Tracks for {test_case} (all members)")
-plt.savefig("/global/homes/z/zhan391/code/ESP-Lab/jupyter/sanity_check.png")
+save_path = Path(__file__).parent / "sanity_check.png"
+plt.savefig(save_path)
 print("Saved sanity_check.png")

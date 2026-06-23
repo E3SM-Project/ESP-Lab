@@ -104,5 +104,6 @@ else:
     # cbar.set_label("TC count", fontsize=13)
     # cbar.ax.tick_params(labelsize=13, length=0)
     
-    fig.savefig("/global/homes/z/zhan391/code/ESP-Lab/jupyter/test_multi_panel.png", bbox_inches='tight')
+    save_path = Path(__file__).parent / "test_multi_panel.png"
+    fig.savefig(save_path, bbox_inches='tight')
     print("Done")
