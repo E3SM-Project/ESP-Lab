@@ -4,6 +4,7 @@ from . import data_access_smyle
 from . import data_access_e3sm
 from . import data_access_cesm_smyle
 from . import diagnostics
+from . import psl_skill
 from .data_access_smyle import get_monthly_data as get_monthly_data_smyle
 from .data_access_smyle import preprocessor as preprocessor_smyle
 from .data_access_e3sm import get_monthly_data as get_monthly_data_e3sm
@@ -17,6 +18,7 @@ __all__ = [
     "data_access_e3sm",
     "data_access_cesm_smyle",
     "diagnostics",
+    "psl_skill",
     "get_monthly_data_smyle",
     "preprocessor_smyle",
     "get_monthly_data_e3sm",
