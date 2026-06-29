@@ -143,6 +143,54 @@ def _build_html_template(manifest: dict) -> str:
             background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.05), transparent 60%);
         }
 
+        /* Mobile Topbar styling */
+        .mobile-topbar {
+            display: none;
+            height: 60px;
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-color);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 150;
+            align-items: center;
+            padding: 0 1.25rem;
+            gap: 1rem;
+        }
+
+        .menu-toggle-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.25rem;
+        }
+
+        .mobile-brand-title {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 1.2rem;
+            background: linear-gradient(135deg, #a5b4fc, #6366f1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(2, 6, 23, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 95;
+        }
+
         /* Sidebar Styling */
         .sidebar-header {
             padding: 2rem 1.5rem;
@@ -467,7 +515,7 @@ def _build_html_template(manifest: dict) -> str:
             display: inline-grid;
             place-content: center;
             position: relative;
-        }}
+        }
 
         .compare-checkbox:checked {
             background-color: #ffffff;
@@ -761,6 +809,11 @@ def _build_html_template(manifest: dict) -> str:
             background-color: rgba(255, 255, 255, 0.15);
         }
 
+        .zoom-btn.active {
+            background-color: var(--accent-primary);
+            color: #ffffff;
+        }
+
         /* Bottom Compare Drawer */
         .compare-drawer {
             position: fixed;
@@ -1034,9 +1087,134 @@ def _build_html_template(manifest: dict) -> str:
         ::-webkit-scrollbar-thumb:hover {
             background: rgba(255, 255, 255, 0.25);
         }
+
+        /* Toggle Info class styles for Lightbox */
+        .lightbox.info-collapsed .lightbox-info {
+            display: none;
+        }
+
+        .lightbox.info-collapsed .lightbox-container {
+            width: 100%;
+        }
+
+        /* Tablet & Desktop Large Responsiveness */
+        @media (max-width: 992px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .sidebar-backdrop.active {
+                display: block;
+            }
+
+            .mobile-topbar {
+                display: flex;
+            }
+
+            .main-content {
+                margin-left: 0;
+                padding: 5rem 1.5rem 2.5rem 1.5rem; /* Top padding to clear mobile topbar */
+            }
+
+            .active-group-title {
+                font-size: 1.75rem;
+            }
+
+            .figures-grid {
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 1.25rem;
+            }
+
+            .compare-drawer {
+                left: 0;
+                padding: 1rem 1.5rem;
+                flex-direction: column;
+                gap: 1rem;
+                align-items: stretch;
+            }
+
+            .compare-drawer-left {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+
+            .compare-drawer-right {
+                justify-content: flex-end;
+            }
+
+            /* Lightbox Responsive Layout */
+            .lightbox {
+                flex-direction: column;
+            }
+
+            .lightbox-container {
+                padding: 1.5rem;
+                height: 60vh;
+                flex-grow: 1;
+            }
+
+            .lightbox-img-wrapper {
+                max-width: 95%;
+                max-height: 95%;
+            }
+
+            .lightbox-info {
+                width: 100%;
+                height: 40vh;
+                border-left: none;
+                border-top: 1px solid var(--border-color);
+                padding: 1.5rem;
+                box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5);
+            }
+
+            .lightbox.info-collapsed .lightbox-container {
+                height: 100vh;
+            }
+
+            /* Comparison Grid on small screens */
+            .comp-grid.panels-2 { grid-template-columns: 1fr; overflow-y: auto; }
+            .comp-grid.panels-3 { grid-template-columns: 1fr; grid-template-rows: repeat(3, 400px); overflow-y: auto; }
+            .comp-grid.panels-4 { grid-template-columns: 1fr; grid-template-rows: repeat(4, 400px); overflow-y: auto; }
+            .comp-grid.panels-3 > div:nth-child(3) { grid-column: span 1; }
+        }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 576px) {
+            .figures-grid {
+                grid-template-columns: 1fr;
+            }
+            .lightbox-info {
+                padding: 1.25rem;
+            }
+            .lightbox-info-title {
+                font-size: 1.25rem;
+            }
+            .active-group-title {
+                font-size: 1.5rem;
+            }
+        }
     </style>
 </head>
 <body>
+
+    <!-- Mobile Top Header -->
+    <div class="mobile-topbar">
+        <button class="menu-toggle-btn" id="menuToggleBtn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+        </button>
+        <span class="mobile-brand-title">ESP-Lab Diagnostics</span>
+    </div>
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
@@ -1112,14 +1290,27 @@ def _build_html_template(manifest: dict) -> str:
 
             <!-- Overlay Zoom Controls -->
             <div class="zoom-controls-overlay">
+                <button class="zoom-btn" id="toggleInfoBtn" title="Toggle Info Panel">
+                    <!-- SVG Info Icon -->
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                    </svg>
+                </button>
+                <button class="zoom-btn" id="scrollModeBtn" title="Toggle Scroll Mode (Actual Size)">
+                    <!-- SVG Scroll/Move Icon -->
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0-2-.9-2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>
+                    </svg>
+                </button>
                 <button class="zoom-btn" id="zoomOutBtn" title="Zoom Out">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M19 13H5v-2h14v2z"/>
                     </svg>
                 </button>
                 <button class="zoom-btn" id="zoomResetBtn" title="Reset Zoom">
+                    <!-- SVG circular reset arrow icon -->
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                        <path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L4.7 14.74C3.61 13.9 3 12.58 3 11c0-4.97 4.03-9 9-9zm0 18c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26l-1.46 1.46c.78 1.23 1.2 2.69 1.2 4.26 0 4.97-4.03 9-9 9v-3l-4 4 4 4v-3z"/>
                     </svg>
                 </button>
                 <button class="zoom-btn" id="zoomInBtn" title="Zoom In">
@@ -1189,6 +1380,8 @@ def _build_html_template(manifest: dict) -> str:
         let selectedForCompare = [];
         let filteredFigures = [];
         let activeLightboxIndex = 0;
+        let isScrollMode = false;
+        let isInfoCollapsed = false;
 
         // Group mapping metadata
         const GROUP_LABELS = {
@@ -1277,6 +1470,24 @@ def _build_html_template(manifest: dict) -> str:
             // Lightbox and comparison events
             setUpLightboxEvents();
             setUpComparisonEvents();
+
+            // Sidebar toggle logic for mobile
+            const sidebar = document.querySelector(".sidebar");
+            const backdrop = document.getElementById("sidebarBackdrop");
+            const toggleBtn = document.getElementById("menuToggleBtn");
+
+            if (toggleBtn) {
+                toggleBtn.addEventListener("click", () => {
+                    sidebar.classList.toggle("open");
+                    backdrop.classList.toggle("active");
+                });
+            }
+            if (backdrop) {
+                backdrop.addEventListener("click", () => {
+                    sidebar.classList.remove("open");
+                    backdrop.classList.remove("active");
+                });
+            }
         });
 
         // Render groups lists in sidebar
@@ -1318,6 +1529,14 @@ def _build_html_template(manifest: dict) -> str:
             // Re-render sidebar to update active class
             renderSidebar();
             updateActiveView();
+
+            // Close sidebar on mobile/tablet view
+            const sidebar = document.querySelector(".sidebar");
+            const backdrop = document.getElementById("sidebarBackdrop");
+            if (window.innerWidth <= 992) {
+                sidebar.classList.remove("open");
+                backdrop.classList.remove("active");
+            }
         };
 
         // Update main content grid
@@ -1437,6 +1656,11 @@ def _build_html_template(manifest: dict) -> str:
             const fig = filteredFigures[index];
             if (!fig) return;
 
+            // Reset scroll mode to fit mode for new image
+            if (isScrollMode) {
+                toggleScrollMode();
+            }
+
             // Reset zoom & pan values
             zoomScale = 1;
             translateX = 0;
@@ -1480,10 +1704,84 @@ def _build_html_template(manifest: dict) -> str:
             openLightbox(nextIndex);
         }
 
+        function toggleScrollMode() {
+            isScrollMode = !isScrollMode;
+            const container = document.getElementById("lightboxContainer");
+            const img = document.getElementById("lightboxImg");
+            const wrapper = document.getElementById("lightboxImgWrapper");
+            const scrollBtn = document.getElementById("scrollModeBtn");
+
+            if (isScrollMode) {
+                container.style.overflow = "auto";
+                container.style.alignItems = "flex-start";
+                container.style.justifyContent = "flex-start";
+                
+                wrapper.style.maxWidth = "none";
+                wrapper.style.maxHeight = "none";
+                wrapper.style.width = "auto";
+                wrapper.style.height = "auto";
+                wrapper.style.cursor = "default";
+
+                img.style.maxWidth = "none";
+                img.style.maxHeight = "none";
+                img.style.width = "auto";
+                img.style.height = "auto";
+                img.style.transform = "none";
+                
+                scrollBtn.classList.add("active");
+                // Hide other zoom buttons
+                document.getElementById("zoomInBtn").style.display = "none";
+                document.getElementById("zoomOutBtn").style.display = "none";
+                document.getElementById("zoomResetBtn").style.display = "none";
+            } else {
+                container.style.overflow = "hidden";
+                container.style.alignItems = "center";
+                container.style.justifyContent = "center";
+
+                wrapper.style.maxWidth = "85%";
+                wrapper.style.maxHeight = "85%";
+                wrapper.style.width = "auto";
+                wrapper.style.height = "auto";
+                wrapper.style.cursor = "grab";
+
+                img.style.maxWidth = "100%";
+                img.style.maxHeight = "100%";
+                img.style.width = "auto";
+                img.style.height = "auto";
+
+                zoomScale = 1;
+                translateX = 0;
+                translateY = 0;
+                applyImageTransform();
+
+                scrollBtn.classList.remove("active");
+                // Show other zoom buttons
+                document.getElementById("zoomInBtn").style.display = "inline-flex";
+                document.getElementById("zoomOutBtn").style.display = "inline-flex";
+                document.getElementById("zoomResetBtn").style.display = "inline-flex";
+            }
+        }
+
+        function toggleInfoPanel() {
+            isInfoCollapsed = !isInfoCollapsed;
+            const lb = document.getElementById("lightbox");
+            const infoBtn = document.getElementById("toggleInfoBtn");
+
+            if (isInfoCollapsed) {
+                lb.classList.add("info-collapsed");
+                infoBtn.classList.add("active");
+            } else {
+                lb.classList.remove("info-collapsed");
+                infoBtn.classList.remove("active");
+            }
+        }
+
         function setUpLightboxEvents() {
             document.getElementById("lightboxClose").addEventListener("click", closeLightbox);
             document.getElementById("lightboxPrev").addEventListener("click", () => navigateLightbox(-1));
             document.getElementById("lightboxNext").addEventListener("click", () => navigateLightbox(1));
+            document.getElementById("scrollModeBtn").addEventListener("click", toggleScrollMode);
+            document.getElementById("toggleInfoBtn").addEventListener("click", toggleInfoPanel);
 
             // Keyboard navigation
             document.addEventListener("keydown", (e) => {
@@ -1510,11 +1808,13 @@ def _build_html_template(manifest: dict) -> str:
             }
 
             document.getElementById("zoomInBtn").addEventListener("click", () => {
+                if (isScrollMode) return;
                 zoomScale = Math.min(zoomScale + 0.25, 4);
                 applyImageTransform();
             });
 
             document.getElementById("zoomOutBtn").addEventListener("click", () => {
+                if (isScrollMode) return;
                 zoomScale = Math.max(zoomScale - 0.25, 0.5);
                 if (zoomScale <= 1) {
                     translateX = 0;
@@ -1524,6 +1824,7 @@ def _build_html_template(manifest: dict) -> str:
             });
 
             document.getElementById("zoomResetBtn").addEventListener("click", () => {
+                if (isScrollMode) return;
                 zoomScale = 1;
                 translateX = 0;
                 translateY = 0;
@@ -1532,6 +1833,7 @@ def _build_html_template(manifest: dict) -> str:
 
             // Mouse wheel zoom
             document.getElementById("lightboxContainer").addEventListener("wheel", (e) => {
+                if (isScrollMode) return; // Native scroll takes over
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? -0.15 : 0.15;
                 zoomScale = Math.max(0.5, Math.min(zoomScale + delta, 4));
@@ -1545,14 +1847,14 @@ def _build_html_template(manifest: dict) -> str:
             // Pan/Drag Implementation
             const wrapper = document.getElementById("lightboxImgWrapper");
             wrapper.addEventListener("mousedown", (e) => {
-                if (zoomScale <= 1) return;
+                if (isScrollMode || zoomScale <= 1) return;
                 isDragging = true;
                 startX = e.clientX - translateX;
                 startY = e.clientY - translateY;
             });
 
             document.addEventListener("mousemove", (e) => {
-                if (!isDragging) return;
+                if (isScrollMode || !isDragging) return;
                 translateX = e.clientX - startX;
                 translateY = e.clientY - startY;
                 applyImageTransform();
@@ -1564,6 +1866,7 @@ def _build_html_template(manifest: dict) -> str:
 
             // Double click to toggle zoom
             wrapper.addEventListener("dblclick", () => {
+                if (isScrollMode) return;
                 if (zoomScale > 1) {
                     zoomScale = 1;
                     translateX = 0;
