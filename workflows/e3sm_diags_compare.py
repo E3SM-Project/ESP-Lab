@@ -254,12 +254,9 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
 
     # Save outputs
     suffix = "amip" if "amip" in cmip_path.lower() else "historical"
-    output_pdf = os.path.join(output_dir, f"cmip6_{suffix}_comparison.pdf")
     output_png = os.path.join(output_dir, f"cmip6_{suffix}_comparison.png")
     
-    fig.savefig(output_pdf, bbox_inches='tight')
     fig.savefig(output_png, bbox_inches='tight', dpi=150)
-    print(f"Success! Comparison PDF created at: {output_pdf}")
     print(f"Success! Comparison PNG created at: {output_png}")
     plt.close(fig)
 
