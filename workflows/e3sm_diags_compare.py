@@ -138,7 +138,7 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
     return sim_data
 
 ## --- Plot Comparison Implementation ---
-def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables, seasons):
+def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10]):
     # 1. Load CMIP6 data
     try:
         cmip6 = read_cmip6_metrics_from_csv(cmip_path, variables, seasons)
@@ -150,7 +150,7 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
     sim_data = read_e3sm_diags_metrics(base_dir, simulations, variables, seasons)
 
     # 3. Plotting Configuration
-    fig = plt.figure(figsize=[14, 11])
+    fig = plt.figure(figsize=figsize)
     plt.rcParams.update({'font.size': 10})
     
     nsx = 3
@@ -241,7 +241,7 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
         ax.grid(axis='y', linestyle='--', alpha=0.3)
 
     plt.tight_layout()
-    fig.subplots_adjust(bottom=0.15, hspace=0.35, wspace=0.3)
+    fig.subplots_adjust(bottom=0.15, hspace=0.25, wspace=0.15)
 
     # Place unique legend entries in the bottom margin centered
     handles, labels = ax.get_legend_handles_labels()
