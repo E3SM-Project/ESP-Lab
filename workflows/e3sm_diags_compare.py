@@ -61,7 +61,7 @@ def read_cmip6_metrics_from_csv(path, variables, seasons):
     }
 
 # --- Function to read E3SM Diags metrics dynamically from members ---
-def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
+def read_e3sm_diags_metrics(base_path, simulations, variables, seasons, simulation_members=None):
     """
     Finds all ENxx directories for each simulation and parses their e3sm_diags CSVs.
     """
@@ -76,12 +76,31 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
             continue
 
         # Find all ensemble members (EN00, EN01, etc.)
-        en_dirs = sorted(glob.glob(os.path.join(sim_dir_path, "EN*")))
-        if not en_dirs:
+        all_en_dirs = sorted(glob.glob(os.path.join(sim_dir_path, "EN*")))
+        if not all_en_dirs:
             print(f"Warning: No ENxx subdirectories found under {sim_dir_path}")
             continue
 
+        # Filter ensemble members if explicitly controlled
+        en_dirs = []
+        if simulation_members is not None and sim_name in simulation_members:
+            allowed = simulation_members[sim_name]
+            for item in allowed:
+                if isinstance(item, int):
+                    if 0 <= item < len(all_en_dirs):
+                        en_dirs.append(all_en_dirs[item])
+                elif isinstance(item, str):
+                    matching = [d for d in all_en_dirs if os.path.basename(d) == item]
+                    if matching:
+                        en_dirs.extend(matching)
+        else:
+            en_dirs = all_en_dirs
+
         nmembers = len(en_dirs)
+        if nmembers == 0:
+            print(f"Warning: No matching ensemble members found for {sim_name}")
+            continue
+
         data = ma.array(np.zeros((nmembers, nvariables, nseasons)), mask=True)
         members = []
 
@@ -138,7 +157,7 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
     return sim_data
 
 # --- Plot Comparison Implementation ---
-def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100], box_width=0.3, box_linewidth=1.6, member_size=30, member_alpha=0.55, mean_size=70, ylims=None, fontz=14):
+def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100], box_width=0.3, box_linewidth=1.6, member_size=30, member_alpha=0.55, mean_size=70, ylims=None, fontz=14, simulation_members=None):
     # 1. Load CMIP6 data
     cmip6_amip = None
     if cmip_amip_path and os.path.exists(cmip_amip_path):
@@ -159,7 +178,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
         return
 
     print(f"Reading E3SM Diags metrics from base directory: {base_dir}")
-    sim_data = read_e3sm_diags_metrics(base_dir, simulations, variables, seasons)
+    sim_data = read_e3sm_diags_metrics(base_dir, simulations, variables, seasons, simulation_members=simulation_members)
 
     # 3. Plotting Configuration
     fig = plt.figure(figsize=figsize)
