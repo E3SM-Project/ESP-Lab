@@ -54,6 +54,12 @@ def generate_diagnostics_webpage(diag_dir: Union[str, Path]) -> Path:
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write(html_content)
 
+    try:
+        output_path.chmod(0o644)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not set read permissions on index.html: {e}")
+
     return output_path
 
 
