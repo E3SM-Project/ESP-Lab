@@ -138,7 +138,7 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
     return sim_data
 
 # --- Plot Comparison Implementation ---
-def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100]):
+def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100], box_width=0.3, box_linewidth=1.6, member_size=30, member_alpha=0.55, mean_size=100):
     # 1. Load CMIP6 data
     cmip6_amip = None
     if cmip_amip_path and os.path.exists(cmip_amip_path):
@@ -206,11 +206,11 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
             cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=whis, labels=labels)
             
             # Position AMIP at positions - 0.4
-            ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 - 0.4, widths=0.24,
-                   boxprops=dict(color='#64748b', linewidth=1.2),
-                   whiskerprops=dict(color='#64748b', linewidth=1.2),
-                   capprops=dict(color='#64748b', linewidth=1.2),
-                   medianprops=dict(color='#64748b', linewidth=1.2),
+            ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 - 0.4, widths=box_width,
+                   boxprops=dict(color='#64748b', linewidth=box_linewidth),
+                   whiskerprops=dict(color='#64748b', linewidth=box_linewidth),
+                   capprops=dict(color='#64748b', linewidth=box_linewidth),
+                   medianprops=dict(color='#64748b', linewidth=box_linewidth),
                    showfliers=False)
 
         # Draw CMIP6 Historical box plots
@@ -224,11 +224,11 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
             cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=whis, labels=labels)
             
             # Position Historical at positions + 0.4
-            ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 + 0.4, widths=0.24,
-                   boxprops=dict(color='#0f172a', linewidth=1.2),
-                   whiskerprops=dict(color='#0f172a', linewidth=1.2),
-                   capprops=dict(color='#0f172a', linewidth=1.2),
-                   medianprops=dict(color='#0f172a', linewidth=1.2),
+            ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 + 0.4, widths=box_width,
+                   boxprops=dict(color='#0f172a', linewidth=box_linewidth),
+                   whiskerprops=dict(color='#0f172a', linewidth=box_linewidth),
+                   capprops=dict(color='#0f172a', linewidth=box_linewidth),
+                   medianprops=dict(color='#0f172a', linewidth=box_linewidth),
                    showfliers=False)
 
         # Draw E3SM simulations
@@ -248,14 +248,14 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
                     ax.scatter(
                         x_pos, member_data,
                         color=style['color'], marker=style['marker'],
-                        s=15, alpha=0.35, edgecolors='none', label='_nolegend_'
+                        s=member_size, alpha=member_alpha, edgecolors='none', label='_nolegend_'
                     )
                 # Plot ensemble mean
                 mean_data = np.ma.mean(sim_d[:, ivariable, :], axis=0)
                 ax.scatter(
                     x_pos, mean_data,
                     color=style['color'], marker=style['marker'],
-                    s=70, alpha=1.0, edgecolors='black', linewidths=1.0,
+                    s=mean_size, alpha=1.0, edgecolors='black', linewidths=1.0,
                     label=f"{style['label']} ({nmembers} mem)"
                 )
             else:
@@ -263,7 +263,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
                 ax.scatter(
                     x_pos, member_data,
                     color=style['color'], marker=style['marker'],
-                    s=70, alpha=1.0, edgecolors='black', linewidths=1.0,
+                    s=mean_size, alpha=1.0, edgecolors='black', linewidths=1.0,
                     label=f"{style['label']} (1 mem)"
                 )
 
