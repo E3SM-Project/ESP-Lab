@@ -138,7 +138,7 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
     return sim_data
 
 # --- Plot Comparison Implementation ---
-def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100], box_width=0.3, box_linewidth=1.6, member_size=30, member_alpha=0.55, mean_size=70, ylims=None):
+def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100], box_width=0.3, box_linewidth=1.6, member_size=30, member_alpha=0.55, mean_size=70, ylims=None, fontz=14):
     # 1. Load CMIP6 data
     cmip6_amip = None
     if cmip_amip_path and os.path.exists(cmip_amip_path):
@@ -163,7 +163,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
 
     # 3. Plotting Configuration
     fig = plt.figure(figsize=figsize)
-    plt.rcParams.update({'font.size': 10})
+    plt.rcParams.update({'font.size': fontz})
     
     nsx = 3
     nsy = 3
@@ -293,7 +293,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
         handles.insert(0, hist_handle)
         labels.insert(0, 'CMIP6 Historical distribution')
     
-    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.02), ncol=3, frameon=True)
+    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.02), ncol=3, frameon=True, fontsize=fontz)
 
     # Save outputs
     output_png = os.path.join(output_dir, "cmip6_comparison.png")
