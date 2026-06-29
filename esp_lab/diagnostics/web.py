@@ -141,6 +141,7 @@ def _build_html_template(manifest: dict) -> str:
             padding: 2.5rem;
             position: relative;
             background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.05), transparent 60%);
+            min-width: 0; /* Prevents flex items from expanding beyond viewport width */
         }
 
         /* Mobile Topbar styling */
@@ -363,6 +364,20 @@ def _build_html_template(manifest: dict) -> str:
             overflow-x: auto;
             padding-bottom: 0.5rem;
             border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            scrollbar-width: thin;
+        }
+
+        .metrics-tabs::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .metrics-tabs::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .metrics-tabs::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 2px;
         }
 
         .metric-tab-btn {
@@ -1486,6 +1501,36 @@ def _build_html_template(manifest: dict) -> str:
                 backdrop.addEventListener("click", () => {
                     sidebar.classList.remove("open");
                     backdrop.classList.remove("active");
+                });
+            }
+
+            // Drag-to-scroll for metrics tabs on desktop devices
+            const tabsContainer = document.getElementById("metricsTabs");
+            if (tabsContainer) {
+                let isDown = false;
+                let startX;
+                let scrollLeft;
+
+                tabsContainer.addEventListener("mousedown", (e) => {
+                    isDown = true;
+                    startX = e.pageX - tabsContainer.offsetLeft;
+                    scrollLeft = tabsContainer.scrollLeft;
+                    tabsContainer.style.cursor = "grabbing";
+                });
+                tabsContainer.addEventListener("mouseleave", () => {
+                    isDown = false;
+                    tabsContainer.style.cursor = "default";
+                });
+                tabsContainer.addEventListener("mouseup", () => {
+                    isDown = false;
+                    tabsContainer.style.cursor = "default";
+                });
+                tabsContainer.addEventListener("mousemove", (e) => {
+                    if (!isDown) return;
+                    e.preventDefault();
+                    const x = e.pageX - tabsContainer.offsetLeft;
+                    const walk = (x - startX) * 1.5; // Scroll speed modifier
+                    tabsContainer.scrollLeft = scrollLeft - walk;
                 });
             }
         });
