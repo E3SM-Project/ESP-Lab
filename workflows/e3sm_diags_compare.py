@@ -138,7 +138,7 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
     return sim_data
 
 # --- Plot Comparison Implementation ---
-def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10]):
+def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10], hspace=0.25, wspace=0.15, colors=None, markers=None, whis=[0, 100]):
     # 1. Load CMIP6 data
     cmip6_amip = None
     if cmip_amip_path and os.path.exists(cmip_amip_path):
@@ -170,8 +170,10 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
     nseasons = len(seasons)
 
     # Define plotting styles dynamically based on simulations
-    colors = ['#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899']
-    markers = ['o', '*', 's', '^', 'D', 'v']
+    if colors is None:
+        colors = ['#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899']
+    if markers is None:
+        markers = ['o', '*', 's', '^', 'D', 'v']
     
     plot_styles = {}
     x_offsets = {}
@@ -201,7 +203,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
                 valid_cmip = cmip6_amip['data'][:, ivariable, iseason].compressed()
                 cmip_seasons_data.append(valid_cmip)
                 labels.append(seasons[iseason])
-            cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=[0, 100], labels=labels)
+            cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=whis, labels=labels)
             
             # Position AMIP at positions - 0.4
             ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 - 0.4, widths=0.24,
@@ -219,7 +221,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
                 valid_cmip = cmip6_hist['data'][:, ivariable, iseason].compressed()
                 cmip_seasons_data.append(valid_cmip)
                 labels.append(seasons[iseason])
-            cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=[0, 100], labels=labels)
+            cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=whis, labels=labels)
             
             # Position Historical at positions + 0.4
             ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 + 0.4, widths=0.24,
@@ -274,7 +276,7 @@ def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, si
         ax.grid(axis='y', linestyle='--', alpha=0.3)
 
     plt.tight_layout()
-    fig.subplots_adjust(bottom=0.15, hspace=0.25, wspace=0.15)
+    fig.subplots_adjust(bottom=0.15, hspace=hspace, wspace=wspace)
 
     # Place unique legend entries in the bottom margin centered
     handles, labels = ax.get_legend_handles_labels()
