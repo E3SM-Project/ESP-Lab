@@ -69,7 +69,17 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons, simulati
     nvariables = len(variables)
     nseasons = len(seasons)
 
-    for sim_name, sim_subdir in simulations.items():
+    for sim_name, sim_val in simulations.items():
+        if isinstance(sim_val, dict):
+            sim_subdir = sim_val.get('run_name')
+            ens_filter = sim_val.get('ens')
+        else:
+            sim_subdir = sim_val
+            ens_filter = None
+
+        if ens_filter is None and simulation_members is not None and sim_name in simulation_members:
+            ens_filter = simulation_members[sim_name]
+
         sim_dir_path = os.path.join(base_path, sim_subdir)
         if not os.path.exists(sim_dir_path):
             print(f"Warning: Directory does not exist for {sim_name}: {sim_dir_path}")
@@ -81,18 +91,22 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons, simulati
             print(f"Warning: No ENxx subdirectories found under {sim_dir_path}")
             continue
 
-        # Filter ensemble members if explicitly controlled
+        # Filter ensemble members
         en_dirs = []
-        if simulation_members is not None and sim_name in simulation_members:
-            allowed = simulation_members[sim_name]
-            for item in allowed:
-                if isinstance(item, int):
-                    if 0 <= item < len(all_en_dirs):
-                        en_dirs.append(all_en_dirs[item])
-                elif isinstance(item, str):
-                    matching = [d for d in all_en_dirs if os.path.basename(d) == item]
-                    if matching:
-                        en_dirs.extend(matching)
+        if ens_filter is not None:
+            if isinstance(ens_filter, int):
+                en_dirs = all_en_dirs[:ens_filter]
+            elif isinstance(ens_filter, (list, tuple)):
+                for item in ens_filter:
+                    if isinstance(item, int):
+                        if 0 <= item < len(all_en_dirs):
+                            en_dirs.append(all_en_dirs[item])
+                    elif isinstance(item, str):
+                        matching = [d for d in all_en_dirs if os.path.basename(d) == item]
+                        if matching:
+                            en_dirs.extend(matching)
+            else:
+                en_dirs = all_en_dirs
         else:
             en_dirs = all_en_dirs
 
