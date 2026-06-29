@@ -137,13 +137,25 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
 
     return sim_data
 
-## --- Plot Comparison Implementation ---
-def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10]):
+# --- Plot Comparison Implementation ---
+def run_plot_comparison(cmip_amip_path, cmip_hist_path, base_dir, output_dir, simulations, variables, seasons, figsize=[11, 10]):
     # 1. Load CMIP6 data
-    try:
-        cmip6 = read_cmip6_metrics_from_csv(cmip_path, variables, seasons)
-    except Exception as e:
-        print(f"Error loading CMIP6 metrics: {e}", file=sys.stderr)
+    cmip6_amip = None
+    if cmip_amip_path and os.path.exists(cmip_amip_path):
+        try:
+            cmip6_amip = read_cmip6_metrics_from_csv(cmip_amip_path, variables, seasons)
+        except Exception as e:
+            print(f"Error loading CMIP6 AMIP metrics: {e}", file=sys.stderr)
+            
+    cmip6_hist = None
+    if cmip_hist_path and os.path.exists(cmip_hist_path):
+        try:
+            cmip6_hist = read_cmip6_metrics_from_csv(cmip_hist_path, variables, seasons)
+        except Exception as e:
+            print(f"Error loading CMIP6 Historical metrics: {e}", file=sys.stderr)
+
+    if cmip6_amip is None and cmip6_hist is None:
+        print("Error: Neither CMIP6 AMIP nor Historical datasets could be loaded.", file=sys.stderr)
         return
 
     print(f"Reading E3SM Diags metrics from base directory: {base_dir}")
@@ -166,7 +178,7 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
     
     nsims = len(simulations)
     if nsims > 1:
-        offsets = np.linspace(-0.25, 0.25, nsims)
+        offsets = np.linspace(-0.18, 0.18, nsims)
     else:
         offsets = [0.0]
         
@@ -177,23 +189,45 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
         x_offsets[sim_name] = offsets[isim]
 
     for ivariable in range(len(variables)):
-        # Calculate box and whisker stats from CMIP6 data
-        cmip_seasons_data = []
-        labels = []
-        for iseason in range(nseasons):
-            # Extract valid values
-            valid_cmip = cmip6['data'][:, ivariable, iseason].compressed()
-            cmip_seasons_data.append(valid_cmip)
-            labels.append(seasons[iseason])
-            
-        cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=[0, 100], labels=labels)
-
         # Plot subpanel
         ax = plt.subplot(nsy, nsx, ivariable + 1)
         ax.set_box_aspect(1)
 
-        # Draw CMIP6 box plots
-        ax.bxp(cmip6_stats, positions=np.arange(nseasons) + 1, widths=0.25)
+        # Draw CMIP6 AMIP box plots
+        if cmip6_amip is not None:
+            cmip_seasons_data = []
+            labels = []
+            for iseason in range(nseasons):
+                valid_cmip = cmip6_amip['data'][:, ivariable, iseason].compressed()
+                cmip_seasons_data.append(valid_cmip)
+                labels.append(seasons[iseason])
+            cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=[0, 100], labels=labels)
+            
+            # Position AMIP at positions - 0.4
+            ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 - 0.4, widths=0.24,
+                   boxprops=dict(color='#64748b', linewidth=1.2),
+                   whiskerprops=dict(color='#64748b', linewidth=1.2),
+                   capprops=dict(color='#64748b', linewidth=1.2),
+                   medianprops=dict(color='#64748b', linewidth=1.2),
+                   showfliers=False)
+
+        # Draw CMIP6 Historical box plots
+        if cmip6_hist is not None:
+            cmip_seasons_data = []
+            labels = []
+            for iseason in range(nseasons):
+                valid_cmip = cmip6_hist['data'][:, ivariable, iseason].compressed()
+                cmip_seasons_data.append(valid_cmip)
+                labels.append(seasons[iseason])
+            cmip6_stats = cbook.boxplot_stats(cmip_seasons_data, whis=[0, 100], labels=labels)
+            
+            # Position Historical at positions + 0.4
+            ax.bxp(cmip6_stats, positions=np.arange(nseasons)*2 + 1 + 0.4, widths=0.24,
+                   boxprops=dict(color='#0f172a', linewidth=1.2),
+                   whiskerprops=dict(color='#0f172a', linewidth=1.2),
+                   capprops=dict(color='#0f172a', linewidth=1.2),
+                   medianprops=dict(color='#0f172a', linewidth=1.2),
+                   showfliers=False)
 
         # Draw E3SM simulations
         for sim_name, style in plot_styles.items():
@@ -203,9 +237,9 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
             sim_d = sim_data[sim_name]['data']
             nmembers = sim_d.shape[0]
             offset = x_offsets[sim_name]
-            x_pos = np.arange(nseasons) + 1 + offset
+            x_pos = np.arange(nseasons)*2 + 1 + offset
 
-            # Plot individual members as small, semi-transparent points
+            # Plot individual members
             if nmembers > 1:
                 for imem in range(nmembers):
                     member_data = sim_d[imem, ivariable, :]
@@ -214,29 +248,28 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
                         color=style['color'], marker=style['marker'],
                         s=15, alpha=0.35, edgecolors='none', label='_nolegend_'
                     )
-                # Plot ensemble mean as a larger solid marker
+                # Plot ensemble mean
                 mean_data = np.ma.mean(sim_d[:, ivariable, :], axis=0)
                 ax.scatter(
                     x_pos, mean_data,
                     color=style['color'], marker=style['marker'],
-                    s=75, alpha=1.0, edgecolors='black', linewidths=1.0,
+                    s=70, alpha=1.0, edgecolors='black', linewidths=1.0,
                     label=f"{style['label']} ({nmembers} mem)"
                 )
             else:
-                # Single member: plot directly as a larger solid marker
                 member_data = sim_d[0, ivariable, :]
                 ax.scatter(
                     x_pos, member_data,
                     color=style['color'], marker=style['marker'],
-                    s=75, alpha=1.0, edgecolors='black', linewidths=1.0,
+                    s=70, alpha=1.0, edgecolors='black', linewidths=1.0,
                     label=f"{style['label']} (1 mem)"
                 )
 
         # Customize axes and labels
         ax.set_title('(' + chr(97 + ivariable) + ')', loc="left", fontweight='bold')
         ax.set_title(variables[ivariable]['name'] + ' (' + variables[ivariable]['units'] + ')', loc="right")
-        ax.set_xlim([0.4, nseasons + 0.6])
-        ax.set_xticks(np.arange(nseasons) + 1)
+        ax.set_xlim([0.0, nseasons*2])
+        ax.set_xticks(np.arange(nseasons)*2 + 1)
         ax.set_xticklabels(seasons)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
 
@@ -245,17 +278,21 @@ def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables,
 
     # Place unique legend entries in the bottom margin centered
     handles, labels = ax.get_legend_handles_labels()
-    # Add a custom handle for CMIP6 box plots
-    cmip_handle = plt.Line2D([0], [0], color='black', lw=1.5, label='CMIP6 models distribution')
-    handles.insert(0, cmip_handle)
-    labels.insert(0, 'CMIP6 models distribution')
+    
+    # Custom legend entries for CMIP6 distributions
+    if cmip6_amip is not None:
+        amip_handle = plt.Line2D([0], [0], color='#64748b', lw=1.5, label='CMIP6 AMIP distribution')
+        handles.insert(0, amip_handle)
+        labels.insert(0, 'CMIP6 AMIP distribution')
+    if cmip6_hist is not None:
+        hist_handle = plt.Line2D([0], [0], color='#0f172a', lw=1.5, label='CMIP6 Historical distribution')
+        handles.insert(0, hist_handle)
+        labels.insert(0, 'CMIP6 Historical distribution')
     
     fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.02), ncol=3, frameon=True)
 
     # Save outputs
-    suffix = "amip" if "amip" in cmip_path.lower() else "historical"
-    output_png = os.path.join(output_dir, f"cmip6_{suffix}_comparison.png")
-    
+    output_png = os.path.join(output_dir, "cmip6_comparison.png")
     fig.savefig(output_png, bbox_inches='tight', dpi=150)
     print(f"Success! Comparison PNG created at: {output_png}")
     plt.close(fig)
@@ -266,10 +303,16 @@ def main():
         description="Compare RMSE from 4 E3SM simulations with CMIP6 model distributions."
     )
     parser.add_argument(
-        "--cmip-file",
+        "--cmip-amip-file",
         type=str,
         default="external/cmip6_amip_seasonal_rmse_202206.csv",
-        help="Path to CMIP6 seasonal RMSE CSV file (relative to project root)."
+        help="Path to CMIP6 seasonal AMIP RMSE CSV file."
+    )
+    parser.add_argument(
+        "--cmip-hist-file",
+        type=str,
+        default="external/cmip6_historical_seasonal_rmse_202203.csv",
+        help="Path to CMIP6 seasonal Historical RMSE CSV file."
     )
     parser.add_argument(
         "--base-dir",
@@ -281,13 +324,14 @@ def main():
         "--output-dir",
         type=str,
         default="/global/cfs/cdirs/e3sm/www/zhan391/E3SMv3_S2D",
-        help="Directory to save comparison plot (defaults to base-dir)."
+        help="Directory to save comparison plot."
     )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[1] if '__file__' in globals() else Path(os.getcwd())
-    cmip_path = os.path.join(project_root, args.cmip_file)
-    print(f"Reading CMIP6 metrics from: {cmip_path}")
+    
+    cmip_amip_path = os.path.join(project_root, args.cmip_amip_file)
+    cmip_hist_path = os.path.join(project_root, args.cmip_hist_file)
 
     # Standard Variables List
     variables = [
@@ -311,7 +355,7 @@ def main():
         'JRA55_FOSIRL': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL_1980050100'
     }
 
-    run_plot_comparison(cmip_path, args.base_dir, args.output_dir, simulations, variables, seasons)
+    run_plot_comparison(cmip_amip_path, cmip_hist_path, args.base_dir, args.output_dir, simulations, variables, seasons)
 
 if __name__ == '__main__':
     main()
