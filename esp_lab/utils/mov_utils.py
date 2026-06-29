@@ -672,6 +672,13 @@ def save_figure(fig, figpath, *, mode, metric, title="", caption="", dpi=150, **
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh, indent=2)
 
+    try:
+        from esp_lab.diagnostics.web import generate_diagnostics_webpage
+        generate_diagnostics_webpage(figpath.parent)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not automatically update webpage: {e}")
+
 
 # -----------------------------------------------------------------------------
 # Data/plot helpers for MOV EOF-pattern panels
