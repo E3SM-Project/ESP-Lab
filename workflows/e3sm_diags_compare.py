@@ -5,6 +5,7 @@ against CMIP6 models distribution from pre-compiled CSV files.
 """
 
 import os
+from pathlib import Path
 import sys
 import glob
 import argparse
@@ -136,68 +137,17 @@ def read_e3sm_diags_metrics(base_path, simulations, variables, seasons):
 
     return sim_data
 
-# --- Main Script ---
-def main():
-    parser = argparse.ArgumentParser(
-        description="Compare RMSE from 4 E3SM simulations with CMIP6 model distributions."
-    )
-    parser.add_argument(
-        "--cmip-file",
-        type=str,
-        default="external/cmip6_amip_seasonal_rmse_202206.csv",
-        help="Path to CMIP6 seasonal RMSE CSV file (relative to project root)."
-    )
-    parser.add_argument(
-        "--base-dir",
-        type=str,
-        default="/global/cfs/cdirs/e3sm/www/zhan391/E3SMv3_S2D",
-        help="Base directory containing the 4 simulations."
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="/global/cfs/cdirs/e3sm/www/zhan391/E3SMv3_S2D",
-        help="Directory to save comparison plot (defaults to base-dir)."
-    )
-    args = parser.parse_args()
-
-    project_root = Path(__file__).resolve().parents[1] if '__file__' in globals() else Path(os.getcwd())
-    cmip_path = os.path.join(project_root, args.cmip_file)
-    print(f"Reading CMIP6 metrics from: {cmip_path}")
-
-    # Standard Variables List
-    variables = [
-        {'name': 'Net TOA', 'units': 'W m$^{-2}$', 'id': 'RESTOM global ceres_ebaf_toa_v4.1', 'exclude': ()},
-        {'name': 'SW CRE', 'units': 'W m$^{-2}$', 'id': 'SWCF global ceres_ebaf_toa_v4.1', 'exclude': ()},
-        {'name': 'LW CRE', 'units': 'W m$^{-2}$', 'id': 'LWCF global ceres_ebaf_toa_v4.1', 'exclude': ()},
-        {'name': 'prec', 'units': 'mm day$^{-1}$', 'id': 'PRECT global GPCP_v2.3', 'exclude': ('CIESM',)},
-        {'name': 'tas land', 'units': 'K', 'id': 'TREFHT land ERA5', 'exclude': ()},
-        {'name': 'SLP', 'units': 'hPa', 'id': 'PSL global ERA5', 'exclude': ()},
-        {'name': 'u-200', 'units': 'm s$^{-1}$', 'id': 'U-200mb global ERA5', 'exclude': ()},
-        {'name': 'u-850', 'units': 'm s$^{-1}$', 'id': 'U-850mb global ERA5', 'exclude': ()},
-        {'name': 'Zg-500', 'units': 'hm', 'id': 'Z3-500mb global ERA5', 'exclude': ('KIOST-ESM',)},
-    ]
-
-    seasons = ['ANN', 'DJF', 'MAM', 'JJA', 'SON']
-    nseasons = len(seasons)
-
+## --- Plot Comparison Implementation ---
+def run_plot_comparison(cmip_path, base_dir, output_dir, simulations, variables, seasons):
     # 1. Load CMIP6 data
     try:
         cmip6 = read_cmip6_metrics_from_csv(cmip_path, variables, seasons)
     except Exception as e:
         print(f"Error loading CMIP6 metrics: {e}", file=sys.stderr)
-        sys.exit(1)
+        return
 
-    # 2. Configure the 4 simulations and their subdirectories
-    simulations = {
-        '4DEnVar_branch': 'test_WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVar_branch',
-        '4DEnVar_hybrid': 'test_WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVar_hybrid',
-        'BruteForce': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce_1980050100',
-        'JRA55_FOSIRL': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL_1980050100'
-    }
-
-    print(f"Reading E3SM Diags metrics from base directory: {args.base_dir}")
-    sim_data = read_e3sm_diags_metrics(args.base_dir, simulations, variables, seasons)
+    print(f"Reading E3SM Diags metrics from base directory: {base_dir}")
+    sim_data = read_e3sm_diags_metrics(base_dir, simulations, variables, seasons)
 
     # 3. Plotting Configuration
     fig = plt.figure(figsize=[14, 11])
@@ -205,22 +155,26 @@ def main():
     
     nsx = 3
     nsy = 3
+    nseasons = len(seasons)
 
-    # Define plotting styles for the 4 simulations
-    plot_styles = {
-        '4DEnVar_branch': {'color': '#10b981', 'marker': 'o', 'label': '4DEnVar_branch (1 member)'},
-        '4DEnVar_hybrid': {'color': '#f59e0b', 'marker': '*', 'label': '4DEnVar_hybrid (1 member)'},
-        'BruteForce': {'color': '#3b82f6', 'marker': 's', 'label': 'BruteForce (10 members)'},
-        'JRA55_FOSIRL': {'color': '#ef4444', 'marker': '^', 'label': 'JRA55_FOSIRL (10 members)'}
-    }
-
-    # Offsets around the season tick marks to avoid overlap
-    x_offsets = {
-        '4DEnVar_branch': -0.22,
-        '4DEnVar_hybrid': -0.07,
-        'BruteForce': 0.07,
-        'JRA55_FOSIRL': 0.22
-    }
+    # Define plotting styles dynamically based on simulations
+    colors = ['#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899']
+    markers = ['o', '*', 's', '^', 'D', 'v']
+    
+    plot_styles = {}
+    x_offsets = {}
+    
+    nsims = len(simulations)
+    if nsims > 1:
+        offsets = np.linspace(-0.25, 0.25, nsims)
+    else:
+        offsets = [0.0]
+        
+    for isim, sim_name in enumerate(simulations.keys()):
+        color = colors[isim % len(colors)]
+        marker = markers[isim % len(markers)]
+        plot_styles[sim_name] = {'color': color, 'marker': marker, 'label': f"{sim_name}"}
+        x_offsets[sim_name] = offsets[isim]
 
     for ivariable in range(len(variables)):
         # Calculate box and whisker stats from CMIP6 data
@@ -266,7 +220,7 @@ def main():
                     x_pos, mean_data,
                     color=style['color'], marker=style['marker'],
                     s=75, alpha=1.0, edgecolors='black', linewidths=1.0,
-                    label=style['label']
+                    label=f"{style['label']} ({nmembers} mem)"
                 )
             else:
                 # Single member: plot directly as a larger solid marker
@@ -275,7 +229,7 @@ def main():
                     x_pos, member_data,
                     color=style['color'], marker=style['marker'],
                     s=75, alpha=1.0, edgecolors='black', linewidths=1.0,
-                    label=style['label']
+                    label=f"{style['label']} (1 mem)"
                 )
 
         # Customize axes and labels
@@ -299,15 +253,68 @@ def main():
     fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.02), ncol=3, frameon=True)
 
     # Save outputs
-    suffix = "amip" if "amip" in args.cmip_file.lower() else "historical"
-    output_pdf = os.path.join(args.output_dir, f"cmip6_{suffix}_comparison.pdf")
-    output_png = os.path.join(args.output_dir, f"cmip6_{suffix}_comparison.png")
+    suffix = "amip" if "amip" in cmip_path.lower() else "historical"
+    output_pdf = os.path.join(output_dir, f"cmip6_{suffix}_comparison.pdf")
+    output_png = os.path.join(output_dir, f"cmip6_{suffix}_comparison.png")
     
     fig.savefig(output_pdf, bbox_inches='tight')
     fig.savefig(output_png, bbox_inches='tight', dpi=150)
     print(f"Success! Comparison PDF created at: {output_pdf}")
     print(f"Success! Comparison PNG created at: {output_png}")
+    plt.close(fig)
+
+# --- Main Script ---
+def main():
+    parser = argparse.ArgumentParser(
+        description="Compare RMSE from 4 E3SM simulations with CMIP6 model distributions."
+    )
+    parser.add_argument(
+        "--cmip-file",
+        type=str,
+        default="external/cmip6_amip_seasonal_rmse_202206.csv",
+        help="Path to CMIP6 seasonal RMSE CSV file (relative to project root)."
+    )
+    parser.add_argument(
+        "--base-dir",
+        type=str,
+        default="/global/cfs/cdirs/e3sm/www/zhan391/E3SMv3_S2D",
+        help="Base directory containing the 4 simulations."
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="/global/cfs/cdirs/e3sm/www/zhan391/E3SMv3_S2D",
+        help="Directory to save comparison plot (defaults to base-dir)."
+    )
+    args = parser.parse_args()
+
+    project_root = Path(__file__).resolve().parents[1] if '__file__' in globals() else Path(os.getcwd())
+    cmip_path = os.path.join(project_root, args.cmip_file)
+    print(f"Reading CMIP6 metrics from: {cmip_path}")
+
+    # Standard Variables List
+    variables = [
+        {'name': 'Net TOA', 'units': 'W m$^{-2}$', 'id': 'RESTOM global ceres_ebaf_toa_v4.1', 'exclude': ()},
+        {'name': 'SW CRE', 'units': 'W m$^{-2}$', 'id': 'SWCF global ceres_ebaf_toa_v4.1', 'exclude': ()},
+        {'name': 'LW CRE', 'units': 'W m$^{-2}$', 'id': 'LWCF global ceres_ebaf_toa_v4.1', 'exclude': ()},
+        {'name': 'prec', 'units': 'mm day$^{-1}$', 'id': 'PRECT global GPCP_v2.3', 'exclude': ('CIESM',)},
+        {'name': 'tas land', 'units': 'K', 'id': 'TREFHT land ERA5', 'exclude': ()},
+        {'name': 'SLP', 'units': 'hPa', 'id': 'PSL global ERA5', 'exclude': ()},
+        {'name': 'u-200', 'units': 'm s$^{-1}$', 'id': 'U-200mb global ERA5', 'exclude': ()},
+        {'name': 'u-850', 'units': 'm s$^{-1}$', 'id': 'U-850mb global ERA5', 'exclude': ()},
+        {'name': 'Zg-500', 'units': 'hm', 'id': 'Z3-500mb global ERA5', 'exclude': ('KIOST-ESM',)},
+    ]
+
+    seasons = ['ANN', 'DJF', 'MAM', 'JJA', 'SON']
+
+    simulations = {
+        '4DEnVar_branch': 'test_WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVar_branch',
+        '4DEnVar_hybrid': 'test_WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVar_hybrid',
+        'BruteForce': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce_1980050100',
+        'JRA55_FOSIRL': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL_1980050100'
+    }
+
+    run_plot_comparison(cmip_path, args.base_dir, args.output_dir, simulations, variables, seasons)
 
 if __name__ == '__main__':
-    from pathlib import Path
     main()
