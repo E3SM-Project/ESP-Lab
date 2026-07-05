@@ -78,13 +78,27 @@ VAR_ZS   = "PHIS"
 VAR_LAT  = "lat"
 VAR_LON  = "lon"
 
-# Warm-core parameter sets
+# Warm-core parameter sets.
+# Current E3SM Z200/Z300/Z500 fields are geopotential height in m, so the
+# Yeager-style Z threshold is -6.0 m.  If using geopotential in m2/s2 instead,
+# use the equivalent threshold -6.0 * 9.8 = -58.8 m2/s2.
 PARSETS = {
     "set1": dict(wc1="Z200", wc2="Z500", wc_mag=-6.0,  vc="_DIFF"),
-    "set2": dict(wc1="T200", wc2="T500", wc_mag=-0.6,  vc="_AVG"),
+    "set2": dict(wc1="T200", wc2="T500", wc_mag=-0.4,  vc="_AVG"),
     "set3": dict(wc1="Z300", wc2="Z500", wc_mag=-6.0,  vc="_DIFF"),
-    "set4": dict(wc1="T300", wc2="T500", wc_mag=-0.6,  vc="_AVG"),
+    "set4": dict(wc1="T300", wc2="T500", wc_mag=-0.4,  vc="_AVG"),
+    "set5": dict(wc1="T400", wc2=None,   wc_mag=-0.4,  vc=None),
 }
+
+
+def warm_core_expr(parset: dict) -> str:
+    """Return the TempestExtremes warm-core expression for a parset."""
+    wc1 = parset["wc1"]
+    wc2 = parset.get("wc2")
+    varcmd = parset.get("vc")
+    if varcmd is None:
+        return wc1
+    return f"{varcmd}({wc1},{wc2})"
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -186,15 +200,37 @@ def parse_args() -> argparse.Namespace:
 
     # --- detection parameters ---
     p.add_argument("--parset",   default=None, required=True, choices=list(PARSETS),
-                   help="Warm-core variable set (set1/set2/set3/set4). Required.")
+                   help="Warm-core variable set. Required.")
+    p.add_argument("--wc1", default=None,
+                   help=(
+                       "Override the selected --parset's primary warm-core field "
+                       "(e.g. Z200, T200).  Leave unset to use the PARSETS default."
+                   ))
+    p.add_argument("--wc2", default=None,
+                   help=(
+                       "Override the selected --parset's secondary warm-core field.  "
+                       "Pass '' to force a single-field parset (like set5).  "
+                       "Leave unset to use the PARSETS default."
+                   ))
+    p.add_argument("--wc-mag", type=float, default=None,
+                   help=(
+                       "Override the selected --parset's warm-core magnitude "
+                       "threshold.  Leave unset to use the PARSETS default."
+                   ))
+    p.add_argument("--wc-vc", default=None, choices=["_DIFF", "_AVG", ""],
+                   help=(
+                       "Override the selected --parset's combination operator.  "
+                       "Pass '' for a single-field parset.  "
+                       "Leave unset to use the PARSETS default."
+                   ))
     p.add_argument("--psl-fo-mag",    type=float, default=200.0,
                    help="PSL closed-contour magnitude (Pa).  Default: 200.0")
-    p.add_argument("--psl-fo-dist",   type=float, default=5.5,
-                   help="PSL closed-contour max distance (deg).  Default: 5.5")
-    p.add_argument("--wc-fo-dist",    type=float, default=6.5,
-                   help="Warm-core closed-contour max distance (deg).  Default: 6.5")
-    p.add_argument("--wc-max-offset", type=float, default=1.0,
-                   help="Max PSL/warm-core separation (deg).  Default: 1.0")
+    p.add_argument("--psl-fo-dist",   type=float, default=8.0,
+                   help="PSL closed-contour max distance (deg).  Default: 8.0")
+    p.add_argument("--wc-fo-dist",    type=float, default=8.0,
+                   help="Warm-core closed-contour max distance (deg).  Default: 8.0")
+    p.add_argument("--wc-max-offset", type=float, default=3.0,
+                   help="Max PSL/warm-core separation (deg).  Default: 3.0")
     p.add_argument("--merge-dist",    type=float, default=6.0,
                    help="Min distance between candidates (deg).  Default: 6.0")
     p.add_argument("--zs-factor",     type=float, default=9.81,
@@ -203,8 +239,8 @@ def parse_args() -> argparse.Namespace:
                    help="Sampling frequency filter for DetectNodes.  Default: 6hr")
 
     # --- stitching/filtering parameters ---
-    p.add_argument("--traj-range",      type=float, default=8.0,
-                   help="Max travel distance per 6 h (deg).  Default: 8.0")
+    p.add_argument("--traj-range",      type=float, default=10.0,
+                   help="Max travel distance per 6 h (deg).  Default: 10.0")
     p.add_argument("--traj-min-length", default="10",
                    help="Min cyclone lifetime (steps).  Default: 10")
     p.add_argument("--traj-max-gap",    default="3",
@@ -213,10 +249,10 @@ def parse_args() -> argparse.Namespace:
                    help="Max surface height under PSL minimum (m).  Default: 150.0")
     p.add_argument("--max-lat",         type=float, default=50.0,
                    help="Max latitude of PSL minimum (deg).  Default: 50.0")
-    p.add_argument("--min-wind",        type=float, default=10.0,
-                   help="Min 10-m wind speed (m/s).  Default: 10.0")
-    p.add_argument("--sci-dist",        type=int,   default=10,
-                   help="Threshold checking distance (steps).  Default: 10")
+    p.add_argument("--min-wind",        type=float, default=8.0,
+                   help="Min 10-m wind speed (m/s).  Default: 8.0")
+    p.add_argument("--sci-dist",        type=int,   default=9,
+                   help="Threshold checking distance (steps).  Default: 9")
 
     # --- NCO tools ---
     p.add_argument(
@@ -247,7 +283,21 @@ def parse_args() -> argparse.Namespace:
         help="Enable verbose logging.",
     )
 
-    return p.parse_args()
+    args = p.parse_args()
+
+    # --- validate argument ranges ---
+    if args.workers < 1:
+        p.error("--workers must be at least 1")
+    if args.nens is not None and args.nens < 1:
+        p.error("--nens must be at least 1")
+    if not 0 < args.max_lat <= 90:
+        p.error("--max-lat must be in the interval (0, 90]")
+    for name in ("psl_fo_dist", "wc_fo_dist", "wc_max_offset", "merge_dist",
+                 "traj_range", "max_topo"):
+        if getattr(args, name) < 0:
+            p.error(f"--{name.replace('_', '-')} must be non-negative")
+
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -680,18 +730,33 @@ def process_member(
 
     case_dir = sim_dir / case
     work_dir = out_root / case / member / "post" / "atm" / "tc-analysis"
-    parset   = PARSETS[args.parset]
-    wc1, wc2 = parset["wc1"], parset["wc2"]
-    wc_mag   = parset["wc_mag"]
-    varcmd   = parset["vc"]
+    parset  = dict(PARSETS[args.parset])
+    # Allow the caller (e.g. a notebook looping over parsets) to override the
+    # warm-core definition for this run without editing the PARSETS table.
+    if args.wc1 is not None:
+        parset["wc1"] = args.wc1
+    if args.wc2 is not None:
+        parset["wc2"] = args.wc2 if args.wc2 != "" else None
+    if args.wc_mag is not None:
+        parset["wc_mag"] = args.wc_mag
+    if args.wc_vc is not None:
+        parset["vc"] = args.wc_vc if args.wc_vc != "" else None
+    wc_expr = warm_core_expr(parset)
+    wc_mag  = parset["wc_mag"]
 
     # Output filenames
     detect_out = work_dir / f"{case}_{member}_{args.parset}_TCS_detect.txt"
     track_out  = work_dir / f"{case}_{member}_{args.parset}_TCS_track.txt"
     hist_out   = work_dir / f"{case}_{member}_{args.parset}_TCS_hist.nc"
+    track_tmp  = track_out.with_name(track_out.name + ".tmp")
+    hist_tmp   = hist_out.with_name(hist_out.name + ".tmp")
 
-    if track_out.exists() and not args.force:
-        log.info("  Skipping — output exists: %s", track_out)
+    outputs_complete = (
+        track_out.is_file() and track_out.stat().st_size > 0
+        and hist_out.is_file() and hist_out.stat().st_size > 0
+    )
+    if outputs_complete and not args.force:
+        log.info("  Skipping — complete outputs already exist: %s", track_out)
         return "skipped"
 
     # --- Collect h2 files ---
@@ -705,6 +770,10 @@ def process_member(
         log.info("  [dry-run] Would process %d files", len(h2_files))
         log.info("  [dry-run] Output: %s", track_out)
         return "dry_run"
+
+    # Clear any partial outputs left over from a previous failed run.
+    track_tmp.unlink(missing_ok=True)
+    hist_tmp.unlink(missing_ok=True)
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -743,7 +812,7 @@ def process_member(
         "--verbosity", "0",
         "--closedcontourcmd",
             f"{VAR_PSL},{args.psl_fo_mag},{args.psl_fo_dist},0;"
-            f"{varcmd}({wc1},{wc2}),{wc_mag},{args.wc_fo_dist},{args.wc_max_offset}",
+            f"{wc_expr},{wc_mag},{args.wc_fo_dist},{args.wc_max_offset}",
         "--mergedist",    str(args.merge_dist),
         "--searchbymin",  VAR_PSL,
         "--outputcmd",
@@ -773,7 +842,7 @@ def process_member(
     stitch_args = [
         cmd_stitch,
         "--in",      str(detect_out),
-        "--out",     str(track_out),
+        "--out",     str(track_tmp),
         "--in_fmt",  "lon,lat,slp,wind,zs",
         "--range",   str(args.traj_range),
         "--mintime", str(args.traj_min_length),
@@ -790,10 +859,10 @@ def process_member(
 
     hist_args = [
         cmd_histogram,
-        "--in",      str(track_out),
+        "--in",      str(track_tmp),
         "--iloncol", iloncol,
         "--ilatcol", ilatcol,
-        "--out",     str(hist_out),
+        "--out",     str(hist_tmp),
     ]
 
     # --- Execute ---
@@ -815,11 +884,24 @@ def process_member(
         log.info("  Running StitchNodes …")
         _run(stitch_args, dry_run=False, cwd=work_dir)
 
+        if not track_tmp.is_file() or track_tmp.stat().st_size == 0:
+            raise RuntimeError(f"StitchNodes produced an empty track file: {track_tmp}")
+
+        # HistogramNodes must run before track_tmp is renamed.
         log.info("  Running HistogramNodes …")
         _run(hist_args, dry_run=False, cwd=work_dir)
 
-    except subprocess.CalledProcessError as exc:
-        log.error("  Command failed (exit %d): %s", exc.returncode, exc.cmd)
+        if not hist_tmp.is_file() or hist_tmp.stat().st_size == 0:
+            raise RuntimeError(f"HistogramNodes produced an empty histogram file: {hist_tmp}")
+
+        # Publish both products only after the full pipeline succeeds.
+        os.replace(track_tmp, track_out)
+        os.replace(hist_tmp, hist_out)
+
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
+        track_tmp.unlink(missing_ok=True)
+        hist_tmp.unlink(missing_ok=True)
+        log.error("  Command failed: %s", exc)
         return "failed"
 
     log.info("  Done → %s", track_out)
@@ -860,6 +942,13 @@ def main() -> None:
                 generated = generate_connect_file(
                     args.grid, connect_dir, args.te_bin, args.dry_run
                 )
+                if not args.dry_run and (
+                    not generated.is_file() or generated.stat().st_size == 0
+                ):
+                    raise RuntimeError(
+                        f"Connectivity generation completed but produced no valid "
+                        f"file: {generated}"
+                    )
                 # Update args so process_member picks up the correct path
                 args.connect_file = str(generated)
             except Exception as exc:
@@ -879,6 +968,7 @@ def main() -> None:
 
     # --- Build work list: (case, member) pairs ---
     work_items: list[tuple[str, str]] = []
+    cases_members: dict[str, list[str]] = {}
     for case in cases:
         case_dir = sim_dir / case
         if not case_dir.is_dir():
@@ -891,6 +981,10 @@ def main() -> None:
         if args.nens is not None:
             members = members[: args.nens]
             log.info("  --nens %d: using members %s", args.nens, members)
+        if not members:
+            log.warning("--nens %d leaves no members for case %s", args.nens, case)
+            continue
+        cases_members[case] = members
         for member in members:
             work_items.append((case, member))
 
@@ -898,8 +992,49 @@ def main() -> None:
     if args.dry_run:
         log.info("=== DRY RUN — no files will be written ===")
 
+    # --- Build PHIS_static.nc once per case, in the parent process, before ---
+    # --- starting the worker pool.  All members of a case share this file,  ---
+    # --- so building it up front avoids redundant/concurrent NCO operations. ---
+    failed_cases: set[str] = set()
+    if not args.dry_run:
+        for case, members in cases_members.items():
+            case_dir  = sim_dir / case
+            case_work = out_root / case
+            last_exc: Exception | None = None
+            for member in members:
+                try:
+                    build_phis_static(
+                        case_dir, member, case_work,
+                        phis_stream_tag=args.phis_stream_tag,
+                        var_zs=VAR_ZS,
+                        dry_run=args.dry_run,
+                        nco_bin=args.nco_bin,
+                    )
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+            if last_exc is not None:
+                log.error(
+                    "  Could not build PHIS static for case %s: %s — "
+                    "excluding this case from the run",
+                    case, last_exc,
+                )
+                failed_cases.add(case)
+
     # --- Run ---
     counters = {"ok": 0, "skipped": 0, "dry_run": 0, "no_data": 0, "failed": 0}
+
+    if failed_cases:
+        excluded_items = [item for item in work_items if item[0] in failed_cases]
+        work_items = [item for item in work_items if item[0] not in failed_cases]
+        counters["failed"] += len(excluded_items)
+        log.info(
+            "Excluded %d case(s) (%d (case, member) pairs) due to PHIS static "
+            "build failure; %d (case, member) pairs remain",
+            len(failed_cases), len(excluded_items), len(work_items),
+        )
 
     if args.workers > 1 and not args.dry_run:
         import multiprocessing as mp
@@ -912,11 +1047,19 @@ def main() -> None:
                 for case, member in work_items
             ]
             for r in results:
-                status = r.get()
+                try:
+                    status = r.get()
+                except Exception:
+                    log.exception("Unhandled worker exception")
+                    status = "failed"
                 counters[status] = counters.get(status, 0) + 1
     else:
         for case, member in work_items:
-            status = process_member(case, member, sim_dir, out_root, args)
+            try:
+                status = process_member(case, member, sim_dir, out_root, args)
+            except Exception:
+                log.exception("Unhandled exception processing %s/%s", case, member)
+                status = "failed"
             counters[status] = counters.get(status, 0) + 1
 
     # --- Summary ---

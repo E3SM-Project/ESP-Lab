@@ -4,6 +4,14 @@ from subprocess import CompletedProcess
 from scripts import run_process_tc_track_e3sm as tc
 
 
+def test_warm_core_expr_for_pair_parset():
+    assert tc.warm_core_expr(tc.PARSETS["set2"]) == "_AVG(T200,T500)"
+
+
+def test_warm_core_expr_for_single_variable_parset():
+    assert tc.warm_core_expr(tc.PARSETS["set5"]) == "T400"
+
+
 def test_phis_static_rejects_scalar_time_metadata(tmp_path, monkeypatch):
     path = tmp_path / "PHIS_static.nc"
     path.touch()
