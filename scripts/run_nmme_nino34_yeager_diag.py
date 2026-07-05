@@ -10,8 +10,11 @@ evaluates ACC and nRMSE against HadISST2, and writes f03/f04-style outputs.
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import warnings
 from pathlib import Path
+from uuid import uuid4
 
 import cftime
 import matplotlib.pyplot as plt
@@ -48,6 +51,36 @@ SEASON_LABELS_BY_MONTH = {
     8: ["SON", "DJF", "MAM", "JJA", "SON", "DJF", "MAM"],
     11: ["DJF", "MAM", "JJA", "SON", "DJF", "MAM", "JJA"],
 }
+_S_CHUNK_RE = re.compile(r"_S(\d+)-(\d+)\.nc$")
+
+
+def _date_slice_start(year: int) -> str:
+    return f"{year:04d}-01-01"
+
+
+def _date_slice_end(year: int) -> str:
+    return f"{year:04d}-12-30"
+
+
+def _period_tag(data_start: int, data_end: int) -> str:
+    return f"{data_start:04d}_{data_end:04d}"
+
+
+def _write_netcdf_replace(
+    ds: xr.Dataset,
+    path: Path,
+    *,
+    encoding: dict | None = None,
+) -> None:
+    """Write to a fresh temporary file, then replace the target path."""
+    path = Path(path)
+    tmp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        ds.to_netcdf(tmp_path, encoding=encoding)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def _decode_cf_time(ds: xr.Dataset, time_var: str = "S") -> xr.Dataset:
@@ -77,7 +110,65 @@ def discover_sst_models(root: Path) -> list[str]:
     return models
 
 
-def _open_member_sst(member_dir: Path, model: str) -> xr.Dataset:
+def _chunk_range(path: Path) -> tuple[int, int] | None:
+    match = _S_CHUNK_RE.search(path.name)
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _decode_s_edge(path: Path, *, first: bool) -> object:
+    with xr.open_dataset(path, decode_times=False) as ds:
+        s_ds = ds[["S"]].copy()
+    if s_ds["S"].attrs.get("calendar") == "360":
+        s_ds["S"].attrs["calendar"] = "360_day"
+    values = xr.decode_cf(s_ds, decode_times=True)["S"].values
+    return values[0 if first else -1]
+
+
+def model_s_range(root: Path, model: str) -> tuple[object, object]:
+    """Return the decoded first and last initialization dates for one model."""
+    files = []
+    for path in (root / model / "sst").glob("M*/*.nc"):
+        chunk_range = _chunk_range(path)
+        if chunk_range is not None:
+            files.append((*chunk_range, path))
+    if not files:
+        raise FileNotFoundError(f"No SST chunks found for {model} under {root / model / 'sst'}")
+
+    first_file = min(files, key=lambda item: (item[0], item[1]))[2]
+    last_file = max(files, key=lambda item: (item[1], item[0]))[2]
+    return _decode_s_edge(first_file, first=True), _decode_s_edge(last_file, first=False)
+
+
+def resolve_data_years(
+    root: Path,
+    models: list[str],
+    data_start: str,
+    data_end: str,
+) -> tuple[int, int]:
+    """Resolve explicit or auto data-window years for the selected models."""
+    starts = []
+    ends = []
+    if data_start == "auto" or data_end == "auto":
+        for model in models:
+            start, end = model_s_range(root, model)
+            starts.append(start.year)
+            ends.append(end.year)
+
+    resolved_start = min(starts) if data_start == "auto" else int(data_start)
+    resolved_end = max(ends) if data_end == "auto" else int(data_end)
+    if resolved_start > resolved_end:
+        raise ValueError(f"data-start ({resolved_start}) must be <= data-end ({resolved_end})")
+    return resolved_start, resolved_end
+
+
+def _open_member_sst(
+    member_dir: Path,
+    model: str,
+    data_start: int,
+    data_end: int,
+) -> xr.Dataset:
     files = sorted(member_dir.glob(f"sst_{model}_{member_dir.name}_S*.nc"))
     if not files:
         raise FileNotFoundError(f"No SST chunks found under {member_dir}")
@@ -89,7 +180,7 @@ def _open_member_sst(member_dir: Path, model: str) -> xr.Dataset:
         parallel=False,
     )
     ds = _decode_cf_time(ds, "S")
-    ds = ds.sel(S=slice("1982-01-01", "2016-12-30"))
+    ds = ds.sel(S=slice(_date_slice_start(data_start), _date_slice_end(data_end)))
     return ds
 
 
@@ -105,10 +196,12 @@ def _regional_mean_nino34(ds: xr.Dataset) -> xr.DataArray:
 def _remove_init_month_climatology(regsst: xr.DataArray, model: str) -> xr.DataArray:
     if model in SPLIT_CLIMO_MODELS:
         parts = []
-        for start, end in [("1982-01-01", "1998-12-30"), ("1999-01-01", "2016-12-30")]:
+        for start, end in [(None, "1998-12-30"), ("1999-01-01", None)]:
             part = regsst.sel(S=slice(start, end))
-            parts.append(part.groupby("S.month") - part.groupby("S.month").mean(("S", "M")))
-        return xr.concat(parts, dim="S")
+            if part.sizes.get("S", 0) > 0:
+                parts.append(part.groupby("S.month") - part.groupby("S.month").mean(("S", "M")))
+        if parts:
+            return xr.concat(parts, dim="S").sortby("S")
     return regsst.groupby("S.month") - regsst.groupby("S.month").mean(("S", "M"))
 
 
@@ -116,10 +209,13 @@ def load_or_compute_model_regsst(
     root: Path,
     outdir: Path,
     model: str,
+    data_start: int,
+    data_end: int,
     *,
     force: bool = False,
 ) -> xr.DataArray:
-    cache_file = outdir / "processed" / f"NMME_{model}_Nino34SST_mon_anom_1982_2016.nc"
+    period = _period_tag(data_start, data_end)
+    cache_file = outdir / "processed" / f"NMME_{model}_Nino34SST_mon_anom_{period}.nc"
     if cache_file.exists() and not force:
         return xr.open_dataset(cache_file)["sst"]
 
@@ -132,7 +228,7 @@ def load_or_compute_model_regsst(
     for member_dir in _sorted_member_dirs(model_dir):
         member_id = _member_number(member_dir)
         print(f"[NMME] {model} {member_dir.name}")
-        with _open_member_sst(member_dir, model) as ds:
+        with _open_member_sst(member_dir, model, data_start, data_end) as ds:
             reg = _regional_mean_nino34(ds).load()
         members.append(reg)
         member_ids.append(member_id)
@@ -150,11 +246,14 @@ def load_or_compute_model_regsst(
             "units": "degC",
             "region": "5S-5N, 170W-120W",
             "source": str(model_dir),
+            "data_start": data_start,
+            "data_end": data_end,
         }
     )
 
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    regsst.to_dataset(name="sst").to_netcdf(
+    _write_netcdf_replace(
+        regsst.to_dataset(name="sst"),
         cache_file,
         encoding={"S": {"units": "days since 1960-01-01", "calendar": "360_day"}},
     )
@@ -217,6 +316,8 @@ def process_nmme(
     root: Path,
     outdir: Path,
     models: list[str],
+    data_start: int,
+    data_end: int,
     clim_start: int,
     clim_end: int,
     *,
@@ -226,7 +327,14 @@ def process_nmme(
     loaded_models = []
     for model in models:
         try:
-            reg = load_or_compute_model_regsst(root, outdir, model, force=force)
+            reg = load_or_compute_model_regsst(
+                root,
+                outdir,
+                model,
+                data_start,
+                data_end,
+                force=force,
+            )
         except Exception as exc:
             warnings.warn(f"[NMME] skipping {model}: {exc}", stacklevel=2)
             continue
@@ -281,6 +389,8 @@ def process_nmme(
         "seasonal_dd": seasonal_dd,
         "monthly_drift": monthly_drift,
         "seasonal_drift": seasonal_drift,
+        "data_start": data_start,
+        "data_end": data_end,
     }
 
 
@@ -356,14 +466,20 @@ def save_outputs(
     outdir: Path,
     processed: dict[str, dict[int, xr.DataArray] | xr.DataArray],
     skill: dict[str, xr.Dataset],
-) -> None:
+) -> Path:
     outdir.mkdir(parents=True, exist_ok=True)
+    period = _period_tag(processed["data_start"], processed["data_end"])
     skill_ds = xr.Dataset()
     for name, ds in skill.items():
+        lead_dim = "seasonal_L" if "seas" in name else "monthly_L"
+        ds_out = ds.rename({"L": lead_dim}) if "L" in ds.dims else ds
         for var in ds.data_vars:
-            skill_ds[f"{name}_{var}"] = ds[var]
+            skill_ds[f"{name}_{var}"] = ds_out[var]
     skill_ds.attrs["description"] = "NMME Nino3.4 skill diagnostics following Yeager f03/f04 conventions"
-    skill_ds.to_netcdf(outdir / "NMME_Nino34_skill_1982_2016.nc")
+    skill_ds.attrs["data_start"] = processed["data_start"]
+    skill_ds.attrs["data_end"] = processed["data_end"]
+    skill_file = outdir / f"NMME_Nino34_skill_{period}.nc"
+    _write_netcdf_replace(skill_ds, skill_file)
 
     for init_month in INIT_MONTHS:
         ds = xr.Dataset(
@@ -372,14 +488,16 @@ def save_outputs(
                 "time": processed["seasonal_time"][init_month],
             }
         )
-        ds.to_netcdf(outdir / f"NMME{init_month:02d}_Nino34SST_seas_dd.nc")
+        _write_netcdf_replace(ds, outdir / f"NMME{init_month:02d}_Nino34SST_seas_dd_{period}.nc")
+    return skill_file
 
 
-def plot_f03_like(skill: dict[str, xr.Dataset], figdir: Path) -> Path:
+def plot_f03_like(skill: dict[str, xr.Dataset], figdir: Path, data_start: int, data_end: int) -> Path:
     nmme_seas_skill = skill["nmme_seas_skill"]
     nmme_seas_skill_mmm = skill["nmme_seas_skill_mmm"]
     nmme_skill = skill["nmme_skill"]
     nmme_skill_mmm = skill["nmme_skill_mmm"]
+    period_label = f"NMME ({data_start}-{data_end})"
 
     fig = plt.figure(figsize=(18, 20))
     plt.rcParams.update({"font.size": 14})
@@ -399,7 +517,7 @@ def plot_f03_like(skill: dict[str, xr.Dataset], figdir: Path) -> Path:
             ax2.set_title("nRMSE", loc="center")
 
         tmp = nmme_seas_skill_mmm.sel(startmonth=init_month)
-        ax.plot(tmp.L - 2, tmp.corr, color="r", linewidth=2, linestyle="--", label="NMME (1982-2016)")
+        ax.plot(tmp.L - 2, tmp.corr, color="r", linewidth=2, linestyle="--", label=period_label)
         ax.plot(tmp.L - 2, tmp.corr, color="r", marker="o", markersize=8, fillstyle="none", linestyle="none")
         ax.plot(tmp.L - 2, tmp.corr.where(tmp.pval < 0.1), color="r", marker="o", markersize=8, linestyle="none")
         ax2.plot(tmp.L - 2, tmp.rmse, color="r", linewidth=2, marker="o", markersize=8, linestyle="--")
@@ -425,7 +543,7 @@ def plot_f03_like(skill: dict[str, xr.Dataset], figdir: Path) -> Path:
     ax2.set_title(figlabs[1][4] + " " + hindcasts[4], loc="left")
 
     tmp = nmme_skill_mmm.mean("startmonth")
-    ax.plot(tmp.L - 1, tmp.corr, color="r", linewidth=2, linestyle="--", label="NMME (1982-2016)")
+    ax.plot(tmp.L - 1, tmp.corr, color="r", linewidth=2, linestyle="--", label=period_label)
     ax.plot(tmp.L - 1, tmp.corr, color="r", marker="o", markersize=8, fillstyle="none", linestyle="none")
     ax.plot(tmp.L - 1, tmp.corr.where(tmp.pval < 0.1), color="r", marker="o", markersize=8, linestyle="none")
     ax2.plot(tmp.L - 1, tmp.rmse, color="r", linewidth=2, marker="o", markersize=8, linestyle="--")
@@ -456,6 +574,8 @@ def plot_f04_like(
     obs_seas: xr.DataArray,
     clim_start: int,
     clim_end: int,
+    data_start: int,
+    data_end: int,
     figdir: Path,
 ) -> Path:
     obs_djf = obs_seas.where(obs_seas.time.dt.month == 1, drop=True)
@@ -479,8 +599,10 @@ def plot_f04_like(
             ax.set_ylim([-3.5, 3.5])
             ax.set_yticks([-2, 0, 2])
             ax.set_yticks(np.arange(-3.5, 4, 0.5), minor=True)
-            ax.set_xlim([1980, 2022])
-            ax.set_xticks(np.arange(1980, 2024, 2), minor=True)
+            xmin = min(1980, data_start)
+            xmax = max(2022, data_end)
+            ax.set_xlim([xmin, xmax])
+            ax.set_xticks(np.arange(xmin, xmax + 2, 2), minor=True)
             ax.plot(obs_djf.time.dt.year, obs_djf, color="k", marker=".", markersize=6, label="HadISST2")
 
             if lindex >= processed["seasonal_dd"][init_month].sizes["L"]:
@@ -542,6 +664,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--clim-start", type=int, default=1982)
     parser.add_argument("--clim-end", type=int, default=2016)
+    parser.add_argument(
+        "--data-start",
+        default="1982",
+        help="First initialization year to process, or 'auto' for the earliest selected-model data year.",
+    )
+    parser.add_argument(
+        "--data-end",
+        default="2016",
+        help="Last initialization year to process, or 'auto' for the latest selected-model data year.",
+    )
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -556,6 +688,14 @@ def main() -> None:
         else:
             args.models = discover_sst_models(args.nmme_root)
 
+    data_start, data_end = resolve_data_years(
+        args.nmme_root,
+        args.models,
+        args.data_start,
+        args.data_end,
+    )
+    print(f"[NMME] data window: {data_start}-{data_end}")
+    print(f"[NMME] skill climatology window: {args.clim_start}-{args.clim_end}")
     print("[OBS] loading HadISST2 Nino3.4")
     obs_mon, obs_seas = load_obs_nino34(args.obs_file, args.obs_var)
     print(f"[NMME] processing {len(args.models)} model(s) from member-split archive")
@@ -563,16 +703,27 @@ def main() -> None:
         args.nmme_root,
         args.outdir,
         args.models,
+        data_start,
+        data_end,
         args.clim_start,
         args.clim_end,
         force=args.force,
     )
     print("[NMME] computing skill")
     skill = compute_nmme_skill(processed, obs_mon, obs_seas, args.clim_start, args.clim_end)
-    save_outputs(args.outdir, processed, skill)
-    f03 = plot_f03_like(skill, args.figdir)
-    f04 = plot_f04_like(processed, skill, obs_seas, args.clim_start, args.clim_end, args.figdir)
-    print(f"Saved skill dataset: {args.outdir / 'NMME_Nino34_skill_1982_2016.nc'}")
+    skill_file = save_outputs(args.outdir, processed, skill)
+    f03 = plot_f03_like(skill, args.figdir, data_start, data_end)
+    f04 = plot_f04_like(
+        processed,
+        skill,
+        obs_seas,
+        args.clim_start,
+        args.clim_end,
+        data_start,
+        data_end,
+        args.figdir,
+    )
+    print(f"Saved skill dataset: {skill_file}")
     print(f"Saved figure: {f03}")
     print(f"Saved figure: {f04}")
 
