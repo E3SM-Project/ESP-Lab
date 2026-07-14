@@ -66,4 +66,4 @@ One can install `esp-lab` in the existing conda environment by following steps:
 [repo-link]: https://github.com/CESM-ESPWG/ESP-Lab
 
 
-Documentation can be found at [esp-lab.readthedocs.io](esp-lab.readthedocs.io)
+Documentation can be found at [esp-lab.readthedocs.io](https://esp-lab.readthedocs.io/).
