@@ -95,7 +95,7 @@ def test_monthly_to_seasonal_cache_write_and_restart(tmp_path, monthly_leads, re
         netcdf_write_options={}, workflow_resources=tracker,
     )
     try:
-        exec(_cell(14), ns)
+        exec(_cell(13), ns)
         with xr.open_dataset(path) as saved:
             xr.testing.assert_allclose(saved, expected)
             assert saved.attrs == attrs
@@ -107,7 +107,7 @@ def test_monthly_to_seasonal_cache_write_and_restart(tmp_path, monthly_leads, re
         # A restarted cell must reuse the file without accessing raw input.
         ns.update(e3sm_raw_by_case_month={}, cal=SimpleNamespace(mon_to_seas_dask=_forbid),
                   workflow_resources=ResourceTracker())
-        exec(_cell(14), ns)
+        exec(_cell(13), ns)
         assert path.stat().st_mtime_ns == stamp
         xr.testing.assert_allclose(ns["e3sm_seas_by_case_month"]["case-a"][11], expected)
     finally:
@@ -200,7 +200,7 @@ def notebook_run(tmp_path):
             atomic_to_netcdf=atomic_to_netcdf, load_netcdf=load_netcdf,
             check_remove_drift_sample=check_remove_drift_sample,
         )
-        exec(_cell(8), ns)
+        exec(_cell(7), ns)
         ns["field"] = field
         ns["cfg"] = ns["VAR_CONFIG"][field]
         ns["analysis_component"] = ns["cfg"].get("component", "atm")
@@ -248,14 +248,14 @@ def notebook_run(tmp_path):
         if cached:
             ns["compute_skill_lead_range"] = _forbid
             ns["compute_skill_lead_range_batch"] = _forbid
-        exec(_cell(10), ns)
+        exec(_cell(9), ns)
         # Inject already aggregated archive arrays at the boundary of cell 16.
         ns["e3sm_seas_by_case_month"] = {}
         for case, months in ns["e3sm_months_to_prepare"].items():
             if months:
                 model, time = _seasonal_data(2, missing=(field == "SST" and case == "case-b"))
                 ns["e3sm_seas_by_case_month"][case] = {11: xr.Dataset({field: model, "time": time})}
-        for index in (16, 18, 21, 24, 25, 26, 27, 28, 29, 33):
+        for index in (15, 17, 20, 23, 24, 25, 26, 27, 28, 32):
             exec(compile(_cell(index), f"1a_cell_{index}", "exec"), ns)
         return ns
 
