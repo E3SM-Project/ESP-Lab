@@ -60,3 +60,21 @@ def test_sst_index_preparation_invokes_only_requested_sources(monkeypatch):
     assert command[command.index("--e3sm-cache-tag") + 1] == "JRA55_FOSIRL"
     assert kwargs["check"] is True
 
+
+def test_eli_preparation_passes_selected_grid(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        inputs.subprocess, "run", lambda command, **kwargs: calls.append(command)
+    )
+    config = _config()
+    config["selection"]["upstream_index"] = "ELI"
+    config["inputs"]["eli_grid"] = "native"
+    config["inputs"]["eli_mesh_file"] = "/mesh.nc"
+    config["inputs"]["eli_raw_model_root"] = "/raw/native"
+
+    inputs.ensure_sst_indices(config, ["E3SM-FOSIRL"], include_observation=False)
+
+    command = calls[0]
+    assert command[command.index("--eli-grid") + 1] == "native"
+    assert command[command.index("--mesh-file") + 1] == "/mesh.nc"
+    assert command[command.index("--e3sm-raw-dir") + 1] == "/raw/native"

@@ -11,6 +11,52 @@ import xarray as xr
 from workflows.diagnostics import sst_teleconnections as telecon
 
 
+def test_upstream_eli_paths_support_regridded_and_native_caches(tmp_path):
+    regridded, observed = telecon.upstream_sst_paths(
+        "E3SM-4DEnVarOcn", 5, "ELI", diag_root=tmp_path
+    )
+    native, native_observed = telecon.upstream_sst_paths(
+        "E3SM-4DEnVarOcn", 11, "ELI", diag_root=tmp_path, eli_grid="native"
+    )
+
+    assert regridded == (
+        tmp_path / "4DEnVarOcn/sst_index/timeseries/E3SMLE05_ELI_N10_M24_seas.nc"
+    )
+    assert native == (
+        tmp_path / "4DEnVarOcn/sst_index/timeseries/E3SMLE11_ELI_native_N10_M24_seas.nc"
+    )
+    assert observed == tmp_path / "HadISST2/sst_index/timeseries/HadISST2_sst_ELI_seas.nc"
+    assert native_observed == observed
+    assert "ELI" in telecon.SUPPORTED_UPSTREAM_INDICES
+
+
+def test_open_inputs_reads_eli_variable(monkeypatch, tmp_path):
+    paths = [tmp_path / name for name in ("index-model.nc", "index-obs.nc", "field-model.nc", "field-obs.nc")]
+    datasets = {
+        paths[0]: xr.Dataset({"eli": ("sample", [180.0]), "time": ("sample", [0])}),
+        paths[1]: xr.Dataset({"eli": ("time", [181.0])}),
+        paths[2]: xr.Dataset({"anomaly": ("sample", [1.0]), "time": ("sample", [0])}),
+        paths[3]: xr.Dataset({"observation": ("time", [2.0])}),
+    }
+    monkeypatch.setattr(telecon, "upstream_sst_paths", lambda *args, **kwargs: tuple(paths[:2]))
+    monkeypatch.setattr(telecon, "resolve_downstream_paths", lambda *args, **kwargs: tuple(paths[2:]))
+    monkeypatch.setattr(telecon, "open_dataset_readonly", lambda path: datasets[Path(path)])
+    config = {
+        "paths": {"diag_root": str(tmp_path)},
+        "selection": {"upstream_index": "ELI"},
+        "regrid": {"target_dlat": 5.0, "target_dlon": 5.0, "method": "conservative", "periodic": True},
+        "cache": {"allow_ambiguous_matches": False},
+        "inputs": {"eli_grid": "regridded"},
+    }
+
+    index_forecast, _, index_observed, *_ = telecon.open_inputs(
+        "E3SM-FOSIRL", 5, "PRECT", config
+    )
+
+    assert index_forecast.name == "eli"
+    assert index_observed.name == "eli"
+
+
 def test_downstream_target_grid_supports_independent_and_family_settings():
     config = {
         "selection": {

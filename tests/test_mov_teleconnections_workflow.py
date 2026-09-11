@@ -59,7 +59,9 @@ def test_mov_provenance_fingerprint():
         assert len(fp1) == 16
 
 
-def test_build_inventory_skips_unsupported(tmp_path):
+def test_build_inventory_skips_when_upstream_index_is_missing(tmp_path):
+    assert mov_telecon.E3SM_CASES["E3SM-4DEnVarOcn"]["supports_land"] is True
+
     config = {
         "paths": {"diag_root": str(tmp_path)},
         "selection": {
@@ -75,13 +77,13 @@ def test_build_inventory_skips_unsupported(tmp_path):
     inv = mov_telecon.build_mov_teleconnection_inventory(config)
     assert len(inv) == 2
 
-    # H2OSNO for 4DEnVarOcn should be skipped because 4DEnVarOcn does not produce land
+    # 4DEnVarOcn supports land fields; both variables are skipped only because the
+    # upstream NAM index is absent from tmp_path.
     h2osno_row = inv.query("variable == 'H2OSNO'").iloc[0]
     assert h2osno_row["status"] == "skipped"
-    assert "land diagnostics" in h2osno_row["detail"]
+    assert "NAM index not computed" in h2osno_row["detail"]
 
     # TREFHT should be skipped because upstream NAM index file does not exist in tmp_path
     trefht_row = inv.query("variable == 'TREFHT'").iloc[0]
     assert trefht_row["status"] == "skipped"
     assert "NAM index not computed" in trefht_row["detail"]
-
