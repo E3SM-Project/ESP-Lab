@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 import xarray as xr
 
-NOTEBOOK = Path(__file__).resolve().parents[1] / 'jupyter/3_refactor_sst_skill_ts.ipynb'
+NOTEBOOK = Path(__file__).resolve().parents[1] / 'jupyter/3a_refactor_sst_skill_ts.ipynb'
 
 
 def source(index):
@@ -35,7 +35,7 @@ def test_input_modes(tmp_path, mode, exists, calls, fails):
               upstream_mode=mode, sst_index_processor=processor,
               _base_sst_index_args=lambda **kw: SimpleNamespace(**kw),
               file_inventory_digest=lambda paths: 'test-digest')
-    body = source(6).split('required_sst_index_files = {}', 1)[1]
+    body = source(5).split('required_sst_index_files = {}', 1)[1]
     body = 'required_sst_index_files = {}' + body
     if fails:
         with pytest.raises(RuntimeError, match='Required SST-index diagnostics'):
@@ -61,7 +61,7 @@ def test_smyle_cache_rejects_missing_consumed_metrics(tmp_path, missing):
                                input_inventory_identity='test', detrend=1, init_months='5,11'))
     path = tmp_path / 'skill.nc'
     ds.to_netcdf(path)
-    node = next(node for node in ast.parse(source(16)).body
+    node = next(node for node in ast.parse(source(14)).body
                 if isinstance(node, ast.If) and 'SMYLE_SKILL_FILE.is_file()' in ast.unparse(node.test))
     ns = dict(xr=xr, SMYLE_SKILL_FILE=path, smyle_cfg={}, smyle_skill_cache_exists=False,
               SST_SKILL_CACHE_VERSION=5, skill_year0=1981, skill_year1=2011, climy0=1981, climy1=2010,

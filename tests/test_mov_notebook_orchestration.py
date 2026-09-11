@@ -9,7 +9,7 @@ from workflows.modes_of_variability import orchestration
 
 
 NOTEBOOK = (
-    Path(__file__).resolve().parents[1] / "jupyter" / "4_refactor_mov_analysis.ipynb"
+    Path(__file__).resolve().parents[1] / "jupyter" / "4a_refactor_mov_analysis.ipynb"
 )
 
 
