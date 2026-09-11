@@ -139,6 +139,15 @@ def ensure_sst_indices(
         "--e3sm-nens", str(settings.get("ensemble_member_count", 10)),
         "--workers", str(settings.get("workers", 4)),
     ]
+    if selection["upstream_index"] == "ELI":
+        eli_grid = str(settings.get("eli_grid", "regridded"))
+        if eli_grid not in {"regridded", "native"}:
+            raise ValueError("inputs.eli_grid must be 'regridded' or 'native'")
+        common.extend(["--eli-grid", eli_grid])
+        if settings.get("eli_mesh_file"):
+            common.extend(["--mesh-file", str(settings["eli_mesh_file"])])
+        if settings.get("eli_raw_model_root"):
+            common.extend(["--e3sm-raw-dir", str(settings["eli_raw_model_root"])])
     if force:
         common.append("--force")
     if not settings.get("sst_land_mask", True):

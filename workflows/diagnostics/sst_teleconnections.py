@@ -45,7 +45,7 @@ E3SM_CASES: dict[str, dict[str, Any]] = {
         "display_name": "E3SMv3-4DEnVarOcn",
         "source_revision": "post_process_v1",
         "color": "tab:purple",
-        "supports_land": False,
+        "supports_land": True,
     },
 }
 
@@ -64,6 +64,10 @@ SST_INDEX_REGIONS: dict[str, list[float]] = {
     "ONI": [190.0, 240.0, -5.0, 5.0],
     "RONI": [190.0, 240.0, -20.0, 20.0],
 }
+
+# ELI is produced by the SST-index preprocessing workflow, but it is a
+# longitude centroid rather than a rectangular regional-mean SST index.
+SUPPORTED_UPSTREAM_INDICES = (*SST_INDEX_REGIONS, "ELI")
 
 DOWNSTREAM_VARIABLES: dict[str, dict[str, Any]] = {
     "TREFHT": {
@@ -420,15 +424,39 @@ def select_cache(
 
 
 def upstream_sst_paths(
-    system: str, init_month: int, index_name: str, diag_root: Path = DEFAULT_DIAG_ROOT
+    system: str,
+    init_month: int,
+    index_name: str,
+    diag_root: Path = DEFAULT_DIAG_ROOT,
+    *,
+    eli_grid: str = "regridded",
+    ensemble_member_count: int = 10,
+    monthly_nlead: int = 24,
 ) -> tuple[Path, Path]:
-    """Return paths to forecast and observed SST index seasonal timeseries files."""
+    """Return forecast and observed seasonal upstream-index cache paths."""
     case = E3SM_CASES[system]
     base = diag_root / case["cache_tag"] / "sst_index" / "timeseries"
-    forecast = base / f"E3SMLE{init_month:02d}_TS_N10_M24_{index_name}SST_seas.nc"
-    observed = (
-        diag_root / "HadISST2" / "sst_index" / "timeseries" / f"HadISST2_sst_{index_name}SST_seas.nc"
-    )
+    if index_name == "ELI":
+        if eli_grid not in {"regridded", "native"}:
+            raise ValueError("inputs.eli_grid must be 'regridded' or 'native'")
+        native_tag = "_native" if eli_grid == "native" else ""
+        forecast = base / (
+            f"E3SMLE{init_month:02d}_ELI{native_tag}_"
+            f"N{int(ensemble_member_count):02d}_M{int(monthly_nlead):02d}_seas.nc"
+        )
+        observed = (
+            diag_root / "HadISST2" / "sst_index" / "timeseries"
+            / "HadISST2_sst_ELI_seas.nc"
+        )
+    else:
+        forecast = base / (
+            f"E3SMLE{init_month:02d}_TS_N{int(ensemble_member_count):02d}_"
+            f"M{int(monthly_nlead):02d}_{index_name}SST_seas.nc"
+        )
+        observed = (
+            diag_root / "HadISST2" / "sst_index" / "timeseries"
+            / f"HadISST2_sst_{index_name}SST_seas.nc"
+        )
     return forecast, observed
 
 
@@ -641,7 +669,15 @@ def build_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for system in selection["systems"]:
         for init_month in selection["init_months"]:
-            idx_fcst, idx_obs = upstream_sst_paths(system, init_month, index_name, diag_root=diag_root)
+            idx_fcst, idx_obs = upstream_sst_paths(
+                system,
+                init_month,
+                index_name,
+                diag_root=diag_root,
+                eli_grid=str(config.get("inputs", {}).get("eli_grid", "regridded")),
+                ensemble_member_count=int(config.get("inputs", {}).get("ensemble_member_count", 10)),
+                monthly_nlead=int(config.get("inputs", {}).get("monthly_nlead", 24)),
+            )
             for variable in downstream_vars:
                 spec = DOWNSTREAM_VARIABLES[variable]
                 target_grid = downstream_target_grid(config, variable)
@@ -772,7 +808,15 @@ def open_inputs(
     regrid_method = downstream_regrid_method(config)
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
 
-    idx_fcst_path, idx_obs_path = upstream_sst_paths(system, init_month, index_name, diag_root=diag_root)
+    idx_fcst_path, idx_obs_path = upstream_sst_paths(
+        system,
+        init_month,
+        index_name,
+        diag_root=diag_root,
+        eli_grid=str(config.get("inputs", {}).get("eli_grid", "regridded")),
+        ensemble_member_count=int(config.get("inputs", {}).get("ensemble_member_count", 10)),
+        monthly_nlead=int(config.get("inputs", {}).get("monthly_nlead", 24)),
+    )
     fld_fcst_path, fld_obs_path = resolve_downstream_paths(
         system,
         init_month,
@@ -788,9 +832,10 @@ def open_inputs(
     fld_fcst_ds = open_dataset_readonly(fld_fcst_path)
     fld_obs_ds = open_dataset_readonly(fld_obs_path)
 
-    idx_fcst = idx_fcst_ds["sst"]
+    index_variable = "eli" if index_name == "ELI" else "sst"
+    idx_fcst = idx_fcst_ds[index_variable]
     idx_time = idx_fcst_ds["time"]
-    idx_obs = idx_obs_ds["sst"]
+    idx_obs = idx_obs_ds[index_variable]
 
     fld_fcst = fld_fcst_ds["anomaly"] if "anomaly" in fld_fcst_ds else fld_fcst_ds[variable]
     fld_time = fld_fcst_ds["time"]
@@ -1051,8 +1096,8 @@ def ensure_teleconnection_dataset(
         "upstream_index": index_name,
         "configuration_json": json.dumps(config, sort_keys=True, default=str),
         "source_inventory_json": json.dumps(file_signature(all_source_paths), sort_keys=True),
-        "forecast_definition": "correlation across initialization years using ensemble-mean SST index and ensemble-mean downstream field",
-        "observed_definition": "correlation across matching target dates using observed SST index and observed downstream anomaly",
+        "forecast_definition": "correlation across initialization years using ensemble-mean upstream index and ensemble-mean downstream field",
+        "observed_definition": "correlation across matching target dates using observed upstream index and observed downstream anomaly",
         "season_definition": "centered three-month means inherited from upstream caches",
         "pvalue_note": "classical Pearson t test; no field-significance or autocorrelation correction",
     })
