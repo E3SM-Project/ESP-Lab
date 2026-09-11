@@ -18,7 +18,7 @@ import xarray as xr
 
 from . import data_access_e3sm, stats
 from .leadtime_skill_cache import canonical_json, provenance_digest
-from .prepared_skill import cache_status
+from .leadtime_prepared_cache import cache_status
 from .utils import calendar_utils
 
 
@@ -646,6 +646,7 @@ def load_e3sm_land_monthly(
     engine: str = "netcdf4",
     require_all_members: bool = True,
     verify_coverage: bool = True,
+    resolved_files: Sequence[Sequence[str]] | None = None,
 ) -> xr.Dataset:
     """Load a native E3SM land hindcast as ``(Y, L, M, ...)``.
 
@@ -670,6 +671,10 @@ def load_e3sm_land_monthly(
         require_all_members=require_all_members,
         verify_field_name=True,
         verify_coverage=verify_coverage,
+        resolved_files=(
+            [list(map(str, group)) for group in resolved_files]
+            if resolved_files is not None else None
+        ),
     )
 
 
@@ -707,6 +712,7 @@ def seasonal_land_hindcast_dataset(
     soil_layer_bounds_m: xr.DataArray | np.ndarray | Sequence[float] | None = None,
     min_soil_coverage_fraction: float = 0.999,
     soil_output: str = "volumetric_mean",
+    validate_finite_leads: bool = True,
 ) -> xr.Dataset:
     """Return a seasonal land field together with its ``(Y, L)`` valid time."""
     da = prepare_land_field(
@@ -730,12 +736,15 @@ def seasonal_land_hindcast_dataset(
     seasonal = calendar_utils.mon_to_seas_dask(work)
     seasonal[da.name].attrs.update(da.attrs)
     seasonal[da.name].attrs["temporal_average"] = "centered 3-month seasonal mean"
-    seasonal_field, seasonal_time, dropped = retain_valid_seasonal_leads(
-        seasonal[da.name], seasonal["time"]
-    )
-    seasonal = seasonal_field.to_dataset(name=da.name)
-    seasonal["time"] = seasonal_time
-    seasonal[da.name].attrs["dropped_all_missing_leads"] = ",".join(map(str, dropped))
+    if validate_finite_leads:
+        seasonal_field, seasonal_time, dropped = retain_valid_seasonal_leads(
+            seasonal[da.name], seasonal["time"]
+        )
+        seasonal = seasonal_field.to_dataset(name=da.name)
+        seasonal["time"] = seasonal_time
+        seasonal[da.name].attrs["dropped_all_missing_leads"] = ",".join(
+            map(str, dropped)
+        )
     return seasonal
 
 
@@ -916,8 +925,14 @@ def validate_reference_time_coverage(
     target_years_by_lead: Mapping[int, Sequence[int]],
     valid_time: xr.DataArray,
     climatology_years: tuple[int, int],
+    *,
+    reference_is_anomaly: bool = False,
 ) -> None:
-    """Require unique reference seasons for all evaluation and climo years."""
+    """Require unique reference seasons for evaluation and any needed climo years.
+
+    References supplied as anomalies do not need to cover the model climatology
+    window because no observational climatology is removed from those data.
+    """
     if "time" not in reference.dims:
         raise ValueError("reference must contain time")
     ref_years = np.asarray(reference.time.dt.year.values, dtype=int)
@@ -945,7 +960,8 @@ def validate_reference_time_coverage(
             raise ValueError(f"lead {lead} does not have one verification month")
         month = int(months[0])
         required = {(int(year), month) for year in years}
-        required.update((year, month) for year in range(climy0, climy1 + 1))
+        if not reference_is_anomaly:
+            required.update((year, month) for year in range(climy0, climy1 + 1))
         missing = sorted(required - available)
         if missing:
             raise ValueError(

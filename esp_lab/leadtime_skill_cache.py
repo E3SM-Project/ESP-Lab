@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 
 from esp_lab.paths import leadtime_acc_dir
-from esp_lab.prepared_skill import cache_status
+from esp_lab.leadtime_prepared_cache import cache_status
 from esp_lab.utils.netcdf_utils import atomic_to_netcdf
 
 
@@ -81,7 +81,7 @@ class SkillComparisonCacheLayout:
         year_token = self._year_token(years)
         smyle = self._directory("CESM-SMYLE", "comparison", "anomalies") / (
             f"BSMYLE{init_month:02d}_{self._base}_"
-            f"compare_anom_{self._trend}_{year_token}.nc"
+            f"compare_anom_for_{case_tag}_{self._trend}_{year_token}.nc"
         )
         e3sm = self._directory(case_tag, "comparison", "anomalies") / (
             f"{case_tag}{init_month:02d}_{self._base}_compare_anom_"

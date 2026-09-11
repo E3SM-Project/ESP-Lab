@@ -184,3 +184,46 @@ def test_smyle_ensures_only_missing_benchmark_frequency(tmp_path, monkeypatch):
     assert builder.process_one.call_args.kwargs['data_dir'] == str(tmp_path / 'raw')
     MODULE.ensure_smyle_benchmarks(args)
     assert builder.process_one.call_count == 1
+
+
+def _e3sm_field_args(tmp_path, field="auto"):
+    return SimpleNamespace(
+        e3sm_field=field,
+        e3sm_nens=2,
+        init_months=[5],
+        year_start=1980,
+        year_end=1981,
+        e3sm_data_dir=str(tmp_path),
+        e3sm_case_prefix="case",
+    )
+
+
+def test_e3sm_field_resolution_prefers_complete_sst(tmp_path, monkeypatch):
+    expected = {"1980050100", "1981050100"}
+
+    def available(**kwargs):
+        assert kwargs["field"] in {"SST", "TS"}
+        return {tag: f"/{kwargs['field']}_{tag}.nc" for tag in expected}
+
+    monkeypatch.setattr(MODULE.data_access, "file_dict", available)
+    assert MODULE.resolve_e3sm_field(_e3sm_field_args(tmp_path)) == "SST"
+
+
+def test_e3sm_field_resolution_falls_back_to_ts(tmp_path, monkeypatch):
+    expected = {"1980050100", "1981050100"}
+
+    def available(**kwargs):
+        tags = {"1980050100"} if kwargs["field"] == "SST" else expected
+        return {tag: f"/{kwargs['field']}_{tag}.nc" for tag in tags}
+
+    monkeypatch.setattr(MODULE.data_access, "file_dict", available)
+    assert MODULE.resolve_e3sm_field(_e3sm_field_args(tmp_path)) == "TS"
+
+
+def test_e3sm_explicit_sst_does_not_silently_fall_back(tmp_path, monkeypatch):
+    def available(**kwargs):
+        return {} if kwargs["field"] == "SST" else {"1980050100": "/TS.nc"}
+
+    monkeypatch.setattr(MODULE.data_access, "file_dict", available)
+    with np.testing.assert_raises(FileNotFoundError):
+        MODULE.resolve_e3sm_field(_e3sm_field_args(tmp_path, field="SST"))

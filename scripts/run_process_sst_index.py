@@ -110,6 +110,15 @@ def parse_args() -> argparse.Namespace:
         help="Optional display name stored in E3SM output attributes.",
     )
     p.add_argument(
+        "--e3sm-field",
+        choices=["auto", "SST", "TS"],
+        default="auto",
+        help=(
+            "E3SM source field. 'auto' prefers complete SST coverage and falls "
+            "back to TS. Default: auto"
+        ),
+    )
+    p.add_argument(
         "--smyle-outdir",
         default=str(CESM_SMYLE_DIAG_DIR),
         help=f"Output directory for CESM-SMYLE. Default: {CESM_SMYLE_DIAG_DIR}",
@@ -277,9 +286,52 @@ def get_required_base_regions(regions_list):
     return required_base_regions(regions_list, REGIONS)
 
 
+def resolve_e3sm_field(args: argparse.Namespace) -> str:
+    """Select SST when it completely covers the request, otherwise select TS."""
+    requested = getattr(args, "e3sm_field", "auto")
+    candidates = ("SST", "TS") if requested == "auto" else (requested,)
+    members = [f"EN{i:02d}" for i in range(args.e3sm_nens)]
+    expected_tags = {
+        tag
+        for month in args.init_months
+        for tag in data_access.build_init_tags(
+            range(args.year_start, args.year_end + 1), month
+        )
+    }
+    coverage = {}
+
+    for candidate in candidates:
+        missing = 0
+        for member in members:
+            available = data_access.file_dict(
+                data_dir=args.e3sm_data_dir,
+                case_prefix=args.e3sm_case_prefix,
+                member=member,
+                field=candidate,
+                realm="atm",
+                grid="180x360_aave",
+                freq="monthly",
+                ts_split="2yr",
+                verify_field_name=True,
+            )
+            missing += len(expected_tags - set(available))
+        coverage[candidate] = missing
+        if missing == 0:
+            if requested == "auto":
+                LOG.info("Selected E3SM SST source field %s (SST preferred, TS fallback)", candidate)
+            return candidate
+
+    details = ", ".join(f"{name}: {count} missing files" for name, count in coverage.items())
+    raise FileNotFoundError(
+        "No E3SM SST source field completely covers the requested cases, members, "
+        f"initializations, and years ({details})."
+    )
+
+
 def process_e3sm(args: argparse.Namespace) -> None:
     case_label = args.e3sm_display_name or args.e3sm_cache_tag or args.e3sm_case_prefix
-    LOG.info(f"Processing E3SM regional SST Indices for {case_label}...")
+    source_field = resolve_e3sm_field(args)
+    LOG.info(f"Processing E3SM regional SST Indices for {case_label} from {source_field}...")
     case_outdir = Path(args.outdir)
     if args.e3sm_cache_tag:
         case_outdir = case_outdir / args.e3sm_cache_tag
@@ -296,7 +348,7 @@ def process_e3sm(args: argparse.Namespace) -> None:
     }
 
     cfg = S2DConfig(
-        field="TS",
+        field=source_field,
         data_dir=args.e3sm_data_dir,
         case_prefix=args.e3sm_case_prefix,
         members=members,
@@ -335,8 +387,8 @@ def process_e3sm(args: argparse.Namespace) -> None:
 
     first_m = args.init_months[0]
     ds_first = diag.load_model(first_m)
-    ds_first["TS"], landmask = prepare_sst(
-        ds_first["TS"],
+    ds_first[source_field], landmask = prepare_sst(
+        ds_first[source_field],
         apply_land_mask=args.sst_land_mask,
         land_mask_path=landmask_file,
         source=f"E3SM:{args.e3sm_cache_tag or args.e3sm_case_prefix}",
@@ -345,7 +397,7 @@ def process_e3sm(args: argparse.Namespace) -> None:
     oceanmask = (
         (~landmask).chunk({"lat": 90, "lon": 180})
         if landmask is not None
-        else xr.ones_like(ds_first["TS"].isel(Y=0, L=0, M=0), dtype=bool)
+        else xr.ones_like(ds_first[source_field].isel(Y=0, L=0, M=0), dtype=bool)
     )
     LOG.info("E3SM SST land mask enabled: %s", args.sst_land_mask)
 
@@ -354,8 +406,8 @@ def process_e3sm(args: argparse.Namespace) -> None:
     for m in args.init_months:
         ds = ds_first if m == first_m else diag.load_model(m)
         if m != first_m:
-            ds["TS"], _ = prepare_sst(
-                ds["TS"],
+            ds[source_field], _ = prepare_sst(
+                ds[source_field],
                 apply_land_mask=args.sst_land_mask,
                 land_mask_path=landmask_file,
                 source=f"E3SM:{args.e3sm_cache_tag or args.e3sm_case_prefix}",
@@ -366,13 +418,13 @@ def process_e3sm(args: argparse.Namespace) -> None:
         dask_dict = {}
         for r in required_base:
             lonlat = REGIONS[r]["lonlat"]
-            weights = compute_weights(diag.data_access, ds["TS"], lonlat, oceanmask)
-            dask_dict[f"{r}_mon"] = compute_regional_mean(ds["TS"], weights)
-            dask_dict[f"{r}_seas"] = compute_regional_mean(ds_seas["TS"], weights)
+            weights = compute_weights(diag.data_access, ds[source_field], lonlat, oceanmask)
+            dask_dict[f"{r}_mon"] = compute_regional_mean(ds[source_field], weights)
+            dask_dict[f"{r}_seas"] = compute_regional_mean(ds_seas[source_field], weights)
             
         if "ELI" in args.regions and getattr(args, "eli_grid", "regridded") in {"regridded", "both"}:
-            dask_dict["ELI_mon"] = compute_eli_latlon_sst(ds["TS"], oceanmask=oceanmask)
-            dask_dict["ELI_seas"] = compute_eli_latlon_sst(ds_seas["TS"], oceanmask=oceanmask)
+            dask_dict["ELI_mon"] = compute_eli_latlon_sst(ds[source_field], oceanmask=oceanmask)
+            dask_dict["ELI_seas"] = compute_eli_latlon_sst(ds_seas[source_field], oceanmask=oceanmask)
 
         LOG.info(f"Computing base indices for month {m}...")
         computed_vals = dask.compute(dask_dict)[0]
@@ -407,7 +459,8 @@ def process_e3sm(args: argparse.Namespace) -> None:
                         "case_prefix": args.e3sm_case_prefix,
                         "cache_tag": args.e3sm_cache_tag or "",
                         "display_name": args.e3sm_display_name or "",
-                        "source_grid": "regridded 180x360_aave TS",
+                        "source_grid": f"regridded 180x360_aave {source_field}",
+                        "source_field": source_field,
                     })
                     _safe_to_netcdf(ds_out_mon, outfile_mon, encoding={"eli": {"zlib": True, "complevel": 1, "dtype": "float32"}}, sst_land_mask=args.sst_land_mask)
                     LOG.info(f"Saved E3SM monthly ELI: {outfile_mon}")
@@ -420,13 +473,14 @@ def process_e3sm(args: argparse.Namespace) -> None:
                         "case_prefix": args.e3sm_case_prefix,
                         "cache_tag": args.e3sm_cache_tag or "",
                         "display_name": args.e3sm_display_name or "",
-                        "source_grid": "regridded 180x360_aave TS",
+                        "source_grid": f"regridded 180x360_aave {source_field}",
+                        "source_field": source_field,
                     })
                     _safe_to_netcdf(ds_out_seas, outfile_seas, encoding={"eli": {"zlib": True, "complevel": 1, "dtype": "float32"}}, sst_land_mask=args.sst_land_mask)
                     LOG.info(f"Saved E3SM seasonal ELI: {outfile_seas}")
                 continue
 
-            outfile_mon = outdir / f"E3SMLE{m:02d}_TS_N{args.e3sm_nens:02d}_M{args.nlead:02d}_{r}SST_mon.nc"
+            outfile_mon = outdir / f"E3SMLE{m:02d}_{source_field}_N{args.e3sm_nens:02d}_M{args.nlead:02d}_{r}SST_mon.nc"
             if args.force or not _output_is_current(outfile_mon, args):
                 ds_out_mon = all_mon[r].rename("sst").to_dataset()
                 ds_out_mon["time"] = time_mon
@@ -434,6 +488,7 @@ def process_e3sm(args: argparse.Namespace) -> None:
                     "case_prefix": args.e3sm_case_prefix,
                     "cache_tag": args.e3sm_cache_tag or "",
                     "display_name": args.e3sm_display_name or "",
+                    "source_field": source_field,
                 })
                 if "long_name" not in ds_out_mon["sst"].attrs:
                     ds_out_mon["sst"].attrs.update({
@@ -446,7 +501,7 @@ def process_e3sm(args: argparse.Namespace) -> None:
                 _safe_to_netcdf(ds_out_mon, outfile_mon, encoding=index_encoding, sst_land_mask=args.sst_land_mask)
                 LOG.info(f"Saved E3SM monthly index for {r}: {outfile_mon}")
 
-            outfile_seas = outdir / f"E3SMLE{m:02d}_TS_N{args.e3sm_nens:02d}_M{args.nlead:02d}_{r}SST_seas.nc"
+            outfile_seas = outdir / f"E3SMLE{m:02d}_{source_field}_N{args.e3sm_nens:02d}_M{args.nlead:02d}_{r}SST_seas.nc"
             if args.force or not _output_is_current(outfile_seas, args):
                 ds_out_seas = all_seas[r].rename("sst").to_dataset()
                 ds_out_seas["time"] = time_seas
@@ -454,6 +509,7 @@ def process_e3sm(args: argparse.Namespace) -> None:
                     "case_prefix": args.e3sm_case_prefix,
                     "cache_tag": args.e3sm_cache_tag or "",
                     "display_name": args.e3sm_display_name or "",
+                    "source_field": source_field,
                 })
                 if "long_name" not in ds_out_seas["sst"].attrs:
                     ds_out_seas["sst"].attrs.update({

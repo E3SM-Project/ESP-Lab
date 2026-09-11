@@ -153,6 +153,25 @@ def test_expected_skill_cache_attrs_adds_internal_schema_contract():
     assert attrs["detrend"] == 1
 
 
+def test_comparison_anomaly_paths_are_case_specific(tmp_path):
+    layout = SkillComparisonCacheLayout(
+        root=tmp_path, component="atm", variable="PRECT",
+        climatology_years=(1981, 2010), detrend=True,
+        mode="final", iterations=100, random_seed=42,
+    )
+
+    fosirl_smyle, _ = layout.anomaly_paths(
+        "JRA55_FOSIRL", 5, range(1980, 2012)
+    )
+    reanalysis_smyle, _ = layout.anomaly_paths(
+        "Reanalysis", 5, range(1980, 2012)
+    )
+
+    assert fosirl_smyle != reanalysis_smyle
+    assert "for_JRA55_FOSIRL" in fosirl_smyle.name
+    assert "for_Reanalysis" in reanalysis_smyle.name
+
+
 def test_expected_skill_cache_attrs_requires_verification_years():
     with pytest.raises(ValueError, match="verification_years"):
         expected_skill_cache_attrs(

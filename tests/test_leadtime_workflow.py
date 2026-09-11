@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from esp_lab import leadtime_skill_cache, prepared_skill, stats
+from esp_lab import leadtime_prepared_cache, leadtime_skill_cache, stats
 from esp_lab import leadtime_workflow as workflow
 from esp_lab.data_access_obs import mon_to_seas_obs
 from esp_lab.leadtime_validation import check_remove_drift_sample
@@ -90,7 +90,7 @@ def test_monthly_to_seasonal_cache_write_and_restart(tmp_path, monthly_leads, re
         e3sm_raw_by_case_month={"case-a": {11: raw}},
         seasonal_input_specs_by_case_month={"case-a": {11: (path, attrs)}},
         e3sm_leadtime_dir=lambda *args: tmp_path,
-        cache_status=prepared_skill.cache_status, atomic_to_netcdf=atomic_to_netcdf,
+        cache_status=leadtime_prepared_cache.cache_status, atomic_to_netcdf=atomic_to_netcdf,
         seasonal_cache_encoding=workflow.seasonal_cache_encoding,
         netcdf_write_options={}, workflow_resources=tracker,
     )
@@ -190,7 +190,7 @@ def notebook_run(tmp_path):
 
     def run(field="SST", mode="inventory", cases=("case-a", "case-b"), cached=False):
         ns = {}
-        for module in (prepared_skill, leadtime_skill_cache, workflow, unit_conversion):
+        for module in (leadtime_prepared_cache, leadtime_skill_cache, workflow, unit_conversion):
             ns.update({k: v for k, v in vars(module).items() if not k.startswith("_")})
         tracker = ResourceTracker()
         trackers.append(tracker)

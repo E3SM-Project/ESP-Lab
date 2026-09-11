@@ -15,25 +15,35 @@ from scipy import stats as scipy_stats
 DEFAULT_DIAG_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag")
 DEFAULT_OUTPUT_DIR = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/teleconnections")
 DEFAULT_FIGURE_DIR = Path("/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/teleconnections")
+DEFAULT_DOWNSTREAM_TARGET_GRIDS = {
+    "atmosphere": "latlon_1.0x1.0_periodic-True",
+    "land": "1x1deg_cell_centered",
+}
 
 MEMBER_DIMS = ("M", "member", "ensemble")
 
 E3SM_CASES: dict[str, dict[str, Any]] = {
     "E3SM-FOSIRL": {
+        "case_prefix": "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL",
         "cache_tag": "JRA55_FOSIRL",
         "display_name": "E3SMv3-FOSIRL",
+        "source_revision": "post_process_v1",
         "color": "black",
         "supports_land": True,
     },
     "E3SM-Reanalysis": {
+        "case_prefix": "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce",
         "cache_tag": "Reanalysis",
         "display_name": "E3SMv3-Reanalysis",
+        "source_revision": "post_process_v1",
         "color": "tab:blue",
         "supports_land": True,
     },
     "E3SM-4DEnVarOcn": {
+        "case_prefix": "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVarOcn",
         "cache_tag": "4DEnVarOcn",
         "display_name": "E3SMv3-4DEnVarOcn",
+        "source_revision": "post_process_v1",
         "color": "tab:purple",
         "supports_land": False,
     },
@@ -60,30 +70,35 @@ DOWNSTREAM_VARIABLES: dict[str, dict[str, Any]] = {
         "realm": "atm",
         "family": "atmosphere",
         "label": "2-m air temperature",
+        "reference": "ERA5",
         "units": "degC",
     },
     "TS": {
         "realm": "atm",
         "family": "atmosphere",
         "label": "surface temperature",
+        "reference": "ERA5",
         "units": "degC",
     },
     "PRECT": {
         "realm": "atm",
         "family": "atmosphere",
         "label": "precipitation",
+        "reference": "GPCP_v2.3",
         "units": "mm/day",
     },
     "PSL": {
         "realm": "atm",
         "family": "atmosphere",
         "label": "sea-level pressure",
+        "reference": "ERA5",
         "units": "hPa",
     },
     "SST": {
         "realm": "ocn",
         "family": "atmosphere",
         "label": "sea-surface temperature",
+        "reference": "HadISST2",
         "units": "degC",
     },
     "H2OSNO": {
@@ -102,6 +117,22 @@ DOWNSTREAM_VARIABLES: dict[str, dict[str, Any]] = {
         "depth_token": "0-1.6m",
     },
 }
+
+
+def teleconnection_config(config: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the selection block, accepting transitional section names."""
+    sections = [
+        (name, config[name])
+        for name in ("selection", "teleconnection", "config")
+        if config.get(name) is not None
+    ]
+    if len(sections) > 1 and any(value != sections[0][1] for _, value in sections[1:]):
+        names = ", ".join(name for name, _ in sections)
+        raise ValueError(f"Conflicting teleconnection configuration sections: {names}")
+    resolved = sections[0][1] if sections else None
+    if not isinstance(resolved, Mapping):
+        raise TypeError("A mapping-valued selection section is required")
+    return resolved
 
 
 def parse_init_years(raw_values: Sequence[Any] | np.ndarray) -> np.ndarray:
@@ -133,6 +164,19 @@ def time_year_month(values: Sequence[Any] | np.ndarray) -> tuple[np.ndarray, np.
             months.append(int(stamp.month))
     shape = np.asarray(values).shape
     return np.asarray(years, dtype=int).reshape(shape), np.asarray(months, dtype=int).reshape(shape)
+
+
+def requested_leads(selection: Mapping[str, Any]) -> set[int] | None:
+    """Normalize ``leads``; ``all`` and legacy ``None`` mean no filtering."""
+    value = selection.get("leads", "all")
+    if value is None or (isinstance(value, str) and value.lower() == "all"):
+        return None
+    if isinstance(value, str):
+        raise ValueError("selection.leads must be 'all' or a sequence of stored L values")
+    try:
+        return set(map(int, value))
+    except TypeError as exc:
+        raise TypeError("selection.leads must be 'all' or a sequence of stored L values") from exc
 
 
 def lead_signature(
@@ -353,7 +397,7 @@ def select_cache(
         if not path.is_file():
             continue
         try:
-            with xr.open_dataset(path) as ds:
+            with open_dataset_readonly(path) as ds:
                 missing = set(required_vars) - set(ds.variables)
                 if missing:
                     rejected.append((path, f"missing variables: {sorted(missing)}"))
@@ -424,17 +468,100 @@ def land_candidates(
     return model, obs
 
 
+def downstream_grid_identity(grid: Any, family: str) -> str:
+    """Convert a structured grid specification to an upstream cache identifier."""
+    if isinstance(grid, str):
+        return grid
+    if not isinstance(grid, Mapping):
+        raise TypeError("A target grid must be a string or a mapping")
+
+    try:
+        dlat = float(grid["dlat"])
+        dlon = float(grid["dlon"])
+        periodic = grid["periodic"]
+    except KeyError as exc:
+        raise ValueError("A target-grid mapping requires dlat, dlon, and periodic") from exc
+    if dlat <= 0 or dlon <= 0:
+        raise ValueError("Target-grid dlat and dlon must be positive")
+    if not isinstance(periodic, bool):
+        raise TypeError("Target-grid periodic must be boolean")
+
+    if family == "atmosphere":
+        return f"latlon_{dlat}x{dlon}_periodic-{periodic}"
+    return f"{dlat:g}x{dlon:g}deg_cell_centered"
+
+
+def regrid_config(config: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Validate and return the optional top-level upstream regridding contract."""
+    settings = config.get("regrid")
+    if settings is None:
+        return None
+    if not isinstance(settings, Mapping):
+        raise TypeError("regrid must be a mapping")
+
+    required = {"target_dlat", "target_dlon", "method", "periodic"}
+    missing = required - set(settings)
+    if missing:
+        raise ValueError(f"regrid is missing required settings: {sorted(missing)}")
+    if float(settings["target_dlat"]) <= 0 or float(settings["target_dlon"]) <= 0:
+        raise ValueError("regrid.target_dlat and regrid.target_dlon must be positive")
+    if not str(settings["method"]).strip():
+        raise ValueError("regrid.method must be a non-empty string")
+    if not isinstance(settings["periodic"], bool):
+        raise TypeError("regrid.periodic must be boolean")
+    return settings
+
+
+def downstream_regrid_method(config: Mapping[str, Any]) -> str | None:
+    """Return the expected method recorded by the upstream prepared cache."""
+    settings = regrid_config(config)
+    return None if settings is None else str(settings["method"])
+
+
+def downstream_target_grid(config: Mapping[str, Any], variable: str) -> str:
+    """Resolve a variable's input-cache grid, preferring the top-level regrid contract."""
+    spec = DOWNSTREAM_VARIABLES[variable]
+    regrid = regrid_config(config)
+    if regrid is not None:
+        return downstream_grid_identity(
+            {
+                "dlat": regrid["target_dlat"],
+                "dlon": regrid["target_dlon"],
+                "periodic": regrid["periodic"],
+            },
+            spec["family"],
+        )
+
+    selection = teleconnection_config(config)
+    configured = selection.get("target_grids", {})
+    if not isinstance(configured, Mapping):
+        raise TypeError("selection.target_grids must be a mapping")
+
+    for key in (variable, spec["realm"], spec["family"], "default"):
+        if key in configured:
+            return downstream_grid_identity(configured[key], spec["family"])
+
+    legacy = selection.get("target_grid")
+    if legacy is not None and spec["family"] == "atmosphere":
+        return str(legacy)
+    return DEFAULT_DOWNSTREAM_TARGET_GRIDS[spec["family"]]
+
+
 def resolve_downstream_paths(
     system: str,
     init_month: int,
     variable: str,
     *,
     diag_root: Path = DEFAULT_DIAG_ROOT,
-    target_grid: str = "latlon_1.0x1.0_periodic-True",
+    target_grid: str | None = None,
+    regrid_method: str | None = None,
     allow_ambiguous: bool = False,
 ) -> tuple[Path, Path]:
     """Resolve downstream prepared forecast and observation paths."""
     spec = DOWNSTREAM_VARIABLES[variable]
+    if target_grid is None:
+        target_grid = DEFAULT_DOWNSTREAM_TARGET_GRIDS[spec["family"]]
+    method_attrs = {"regridding_method": regrid_method} if regrid_method is not None else {}
     if spec["family"] == "atmosphere":
         model_candidates, obs_candidates = atmospheric_candidates(
             system, init_month, variable, diag_root=diag_root
@@ -446,6 +573,7 @@ def resolve_downstream_paths(
                 "variable": variable,
                 "initialization_month": init_month,
                 "target_grid": target_grid,
+                **method_attrs,
             },
             description=f"1a {system} {variable} init {init_month:02d} prepared anomaly",
             allow_ambiguous=allow_ambiguous,
@@ -453,7 +581,7 @@ def resolve_downstream_paths(
         obs = select_cache(
             obs_candidates,
             required_vars=("observation",),
-            expected_attrs={"variable": variable, "target_grid": target_grid},
+            expected_attrs={"variable": variable, "target_grid": target_grid, **method_attrs},
             description=f"1a {variable} prepared observation",
             allow_ambiguous=allow_ambiguous,
         )
@@ -466,33 +594,57 @@ def resolve_downstream_paths(
         model = select_cache(
             model_candidates,
             required_vars=(variable, "time"),
-            expected_attrs={"field": variable, "initialization_month": init_month},
+            expected_attrs={
+                "field": variable,
+                "initialization_month": init_month,
+                "horizontal_grid": target_grid,
+                **method_attrs,
+            },
             description=f"1b {system} {variable} init {init_month:02d} prepared forecast",
             allow_ambiguous=allow_ambiguous,
         )
         obs = select_cache(
             obs_candidates,
             required_vars=(variable,),
-            expected_attrs={"field": variable},
+            expected_attrs={"field": variable, "horizontal_grid": target_grid, **method_attrs},
             description=f"1b {variable} prepared reference",
             allow_ambiguous=allow_ambiguous,
         )
     return model, obs
 
 
+def open_dataset_readonly(path: Path | str) -> xr.Dataset:
+    """Open a cache, falling back from NetCDF4 for transient HDF handle failures."""
+    try:
+        return xr.open_dataset(path)
+    except RuntimeError as exc:
+        if "HDF error" not in str(exc):
+            raise
+        try:
+            return xr.open_dataset(path, engine="h5netcdf")
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                f"Could not open NetCDF cache with netCDF4 or h5netcdf: {path}"
+            ) from fallback_exc
+
+
 def build_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFrame:
     """Scan and verify availability of all required upstream products."""
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
-    index_name = config["selection"]["upstream_index"]
-    target_grid = config["selection"].get("target_grid", "latlon_1.0x1.0_periodic-True")
+    selection = teleconnection_config(config)
+    index_name = selection["upstream_index"]
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
+    raw_vars = selection.get("downstream_variable") or selection.get("downstream_variables", [])
+    downstream_vars = [raw_vars] if isinstance(raw_vars, str) else list(raw_vars)
+    regrid_method = downstream_regrid_method(config)
 
     rows: list[dict[str, Any]] = []
-    for system in config["selection"]["systems"]:
-        for init_month in config["selection"]["init_months"]:
+    for system in selection["systems"]:
+        for init_month in selection["init_months"]:
             idx_fcst, idx_obs = upstream_sst_paths(system, init_month, index_name, diag_root=diag_root)
-            for variable in config["selection"]["downstream_variables"]:
+            for variable in downstream_vars:
                 spec = DOWNSTREAM_VARIABLES[variable]
+                target_grid = downstream_target_grid(config, variable)
                 # Check if system supports this variable realm
                 if spec["family"] == "land" and not E3SM_CASES[system].get("supports_land", True):
                     rows.append({
@@ -516,6 +668,7 @@ def build_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFrame:
                         variable,
                         diag_root=diag_root,
                         target_grid=target_grid,
+                        regrid_method=regrid_method,
                         allow_ambiguous=allow_ambiguous,
                     )
                     status = "ready" if idx_fcst.is_file() and idx_obs.is_file() else "missing"
@@ -523,7 +676,7 @@ def build_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFrame:
                 except Exception as exc:
                     fld_fcst = fld_obs = None
                     status = "missing"
-                    detail = str(exc).splitlines()[0]
+                    detail = str(exc)
 
                 rows.append({
                     "system": system,
@@ -540,24 +693,100 @@ def build_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def ensure_upstream_products(config: Mapping[str, Any]) -> pd.DataFrame:
+    """Validate or prepare the selected SST-index and downstream-field inputs."""
+    input_settings = config.get("inputs", {})
+    if not isinstance(input_settings, Mapping):
+        raise TypeError("inputs must be a mapping")
+    mode = str(input_settings.get("mode", "require"))
+    if mode not in {"auto", "require", "rebuild"}:
+        raise ValueError("inputs.mode must be 'auto', 'require', or 'rebuild'")
+
+    inventory = build_teleconnection_inventory(config)
+    if mode == "require":
+        return inventory
+
+    ready_rows = inventory.query("status != 'skipped'")
+    work = ready_rows if mode == "rebuild" else ready_rows.query("status == 'missing'")
+    if work.empty:
+        return inventory
+
+    from workflows.diagnostics import teleconnection_inputs as preparation
+
+    missing_index_systems = sorted({
+        str(row.system)
+        for row in work.itertuples()
+        if mode == "rebuild"
+        or not Path(str(row.index_forecast)).is_file()
+    })
+    missing_index_observation = mode == "rebuild" or any(
+        not Path(str(row.index_observed)).is_file() for row in work.itertuples()
+    )
+    if missing_index_systems or missing_index_observation:
+        if missing_index_systems:
+            print("Preparing selected SST-index inputs:", ", ".join(missing_index_systems))
+        preparation.ensure_sst_indices(
+            config, missing_index_systems,
+            include_observation=missing_index_observation,
+            force=(mode == "rebuild"),
+        )
+
+    downstream_work: dict[str, list[tuple[str, int]]] = {}
+    for row in work.itertuples():
+        if (
+            mode == "rebuild"
+            or pd.isna(row.field_forecast)
+            or pd.isna(row.field_observed)
+        ):
+            downstream_work.setdefault(str(row.variable), []).append(
+                (str(row.system), int(row.init_month))
+            )
+
+    for variable, pairs in downstream_work.items():
+        family = DOWNSTREAM_VARIABLES[variable]["family"]
+        if family == "atmosphere":
+            print(f"Preparing observational {variable} input")
+            preparation.prepare_atmospheric_observation(
+                config, variable, force=(mode == "rebuild")
+            )
+            for system, init_month in pairs:
+                print(f"Preparing {system} {variable}, init={init_month:02d}")
+                preparation.prepare_atmospheric_model(
+                    config, system, init_month, variable
+                )
+        else:
+            print(f"Preparing land {variable} inputs")
+            preparation.prepare_land_inputs(config, variable, pairs)
+
+    return build_teleconnection_inventory(config)
+
+
 def open_inputs(
     system: str, init_month: int, variable: str, config: Mapping[str, Any]
 ) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray, list[Path]]:
     """Open and extract forecast & observed SST index and downstream field DataArrays."""
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
-    index_name = config["selection"]["upstream_index"]
-    target_grid = config["selection"].get("target_grid", "latlon_1.0x1.0_periodic-True")
+    selection = teleconnection_config(config)
+    index_name = selection["upstream_index"]
+    target_grid = downstream_target_grid(config, variable)
+    regrid_method = downstream_regrid_method(config)
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
 
     idx_fcst_path, idx_obs_path = upstream_sst_paths(system, init_month, index_name, diag_root=diag_root)
     fld_fcst_path, fld_obs_path = resolve_downstream_paths(
-        system, init_month, variable, diag_root=diag_root, target_grid=target_grid, allow_ambiguous=allow_ambiguous
+        system,
+        init_month,
+        variable,
+        diag_root=diag_root,
+        target_grid=target_grid,
+        regrid_method=regrid_method,
+        allow_ambiguous=allow_ambiguous,
     )
 
-    idx_fcst_ds = xr.open_dataset(idx_fcst_path)
-    idx_obs_ds = xr.open_dataset(idx_obs_path)
-    fld_fcst_ds = xr.open_dataset(fld_fcst_path)
-    fld_obs_ds = xr.open_dataset(fld_obs_path)
+    idx_fcst_ds = open_dataset_readonly(idx_fcst_path)
+    idx_obs_ds = open_dataset_readonly(idx_obs_path)
+    fld_fcst_ds = open_dataset_readonly(fld_fcst_path)
+    fld_obs_ds = open_dataset_readonly(fld_obs_path)
 
     idx_fcst = idx_fcst_ds["sst"]
     idx_time = idx_fcst_ds["time"]
@@ -580,21 +809,21 @@ def compute_system_teleconnection(
     )
     init_dim = "Y" if "Y" in idx_fcst.dims else "year"
 
-    clim_years = config["selection"]["climatology_years"]
+    selection = teleconnection_config(config)
+    clim_years = selection["climatology_years"]
     idx_fcst = lead_anomaly(idx_fcst, idx_time, clim_years)
     fld_fcst = lead_anomaly(fld_fcst, fld_time, clim_years)
     idx_obs = monthly_anomaly(idx_obs, clim_years)
     fld_obs = monthly_anomaly(fld_obs, clim_years)
 
     lead_pairs = match_leads(idx_time, fld_time, init_dim)
-    requested = config["selection"].get("leads")
-    if requested is not None:
-        requested_set = set(map(int, requested))
+    requested_set = requested_leads(selection)
+    if requested_set is not None:
         lead_pairs = [(idx_lead, fld_lead) for idx_lead, fld_lead in lead_pairs if idx_lead in requested_set]
     if not lead_pairs:
         raise ValueError(f"No common requested leads for {system}, {variable}, init={init_month}")
 
-    y0, y1 = config["selection"]["verification_years"]
+    y0, y1 = selection["verification_years"]
     idx_init_years = parse_init_years(idx_fcst[init_dim].values)
     fld_init_years = parse_init_years(fld_fcst[init_dim].values)
 
@@ -693,7 +922,7 @@ def compute_provenance_fingerprint(
     """Generate a SHA-256 fingerprint hash for configuration and input file provenance."""
     provenance = {
         "schema": "teleconnection_metrics_v1",
-        "selection": config["selection"],
+        "selection": teleconnection_config(config),
         "analysis": config["analysis"],
         "sources": file_signature(source_paths),
     }
@@ -752,7 +981,7 @@ def assemble_teleconnection_dataset(
 
     if target_lat is None or target_lon is None:
         for p in parts:
-            if "lat" in p.dims and len(p.lat) == 181:
+            if "lat" in p.dims and "lon" in p.dims:
                 target_lat = p.lat.values
                 target_lon = p.lon.values
                 break
@@ -795,7 +1024,7 @@ def ensure_teleconnection_dataset(
             ])
 
     fingerprint = compute_provenance_fingerprint(config, all_source_paths)
-    index_name = config["selection"]["upstream_index"]
+    index_name = teleconnection_config(config)["upstream_index"]
     output_dir = Path(config["paths"].get("output_dir", DEFAULT_OUTPUT_DIR))
     out_file = output_dir / f"teleconnection_{index_name.replace('.', '')}_{fingerprint}.nc"
     cache_mode = config["cache"].get("mode", "auto")
