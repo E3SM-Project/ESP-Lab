@@ -164,9 +164,73 @@ def add_acc_comparison_markers(
     return smyle_fraction, e3sm_fraction
 
 
+def add_pointwise_significance_markers(
+    ax,
+    skill,
+    lead_index,
+    *,
+    longitude_2d,
+    latitude_2d,
+    significance_level,
+    style,
+    font_size,
+    font_weight="bold",
+    label_bbox=None,
+):
+    """Stipple significant ACC cells and label their valid-area percentage.
+
+    The percentage uses cosine-latitude weights and includes only cells with
+    the complete sample cohort recorded by the skill dataset.
+    """
+    panel = skill.isel(L=lead_index)
+    valid = panel.corr.notnull()
+    if {"valid_sample_count", "sample_count"}.issubset(panel):
+        valid = valid & (panel.valid_sample_count == panel.sample_count)
+
+    latitude = panel.lat
+    latitude_limit = float(style.get("latlim", 80))
+    within_latitude = abs(latitude) < latitude_limit
+    valid_panel = valid & within_latitude
+    significant = valid_panel & (panel.pval < float(significance_level))
+
+    area_weight = np.cos(np.deg2rad(latitude)).clip(min=0)
+    valid_area = area_weight.where(valid_panel).sum()
+    significant_area = area_weight.where(significant).sum()
+    denominator = float(valid_area)
+    significant_fraction = (
+        float(significant_area) / denominator if denominator > 0 else np.nan
+    )
+
+    stride = int(style.get("marker_stride", 1))
+    if stride < 1:
+        raise ValueError("marker_stride must be at least 1")
+    display_lon = np.asarray(longitude_2d)[::stride, ::stride]
+    display_lat = np.asarray(latitude_2d)[::stride, ::stride]
+    display_mask = np.asarray(significant)[::stride, ::stride]
+    ax.scatter(
+        display_lon[display_mask], display_lat[display_mask],
+        facecolor=style.get("marker_color", "black"),
+        edgecolor=style.get("marker_color", "black"),
+        s=style.get("marker_size", 5), linewidth=0,
+        zorder=10,
+    )
+    if style.get("annotate_percentage", True):
+        label = "(n/a)" if not np.isfinite(significant_fraction) else (
+            f"({significant_fraction * 100:3.1f}% sig.)"
+        )
+        ax.text(
+            0.98, 0.05, label,
+            fontsize=font_size, fontweight=font_weight,
+            bbox=dict(label_bbox or {}), zorder=10,
+            transform=ax.transAxes, ha="right", va="bottom",
+        )
+    return significant_fraction
+
+
 __all__ = [
     "SEASON_NAMES",
     "add_acc_comparison_markers",
+    "add_pointwise_significance_markers",
     "add_lead_badge",
     "add_missing_map_panel",
     "seasonal_label",

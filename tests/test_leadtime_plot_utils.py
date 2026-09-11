@@ -3,6 +3,7 @@ import xarray as xr
 
 from esp_lab.leadtime_plot_utils import (
     add_acc_comparison_markers,
+    add_pointwise_significance_markers,
     seasonal_label,
 )
 
@@ -57,3 +58,32 @@ def test_comparison_marker_percentages_use_only_valid_area():
 
     assert smyle_fraction == 1 / 3
     assert e3sm_fraction == 1 / 3
+
+
+def test_pointwise_significance_markers_use_complete_valid_area():
+    coords = {"L": [1], "lat": [-60.0, 0.0], "lon": [0.0, 90.0]}
+    skill = xr.Dataset(
+        {
+            "corr": (("L", "lat", "lon"), [[[0.5, 0.5], [0.5, 0.5]]]),
+            "pval": (("L", "lat", "lon"), [[[0.01, 0.2], [0.01, 0.01]]]),
+            "sample_count": (("L",), [10]),
+            "valid_sample_count": (
+                ("L", "lat", "lon"), [[[10, 10], [10, 9]]]
+            ),
+        },
+        coords=coords,
+    )
+    lon2d, lat2d = np.meshgrid(coords["lon"], coords["lat"])
+    axis = _Axis()
+
+    fraction = add_pointwise_significance_markers(
+        axis, skill, 0, longitude_2d=lon2d, latitude_2d=lat2d,
+        significance_level=0.1,
+        style={"latlim": 80, "marker_stride": 1, "marker_size": 4},
+        font_size=10,
+    )
+
+    # Significant weights: cos(60) + cos(0); valid adds one more cos(60).
+    assert np.isclose(fraction, 0.75)
+    assert len(axis.scatter_calls[0][0][0]) == 2
+    assert "75.0% sig." in axis.text_calls[0][0][2]

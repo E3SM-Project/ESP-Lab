@@ -854,6 +854,7 @@ def get_monthly_data(
     verify_field_name: bool = True,
     verify_coverage: bool = False,
     engine: str = "netcdf4",
+    resolved_files: Optional[List[List[str]]] = None,
 ) -> xr.Dataset:
     """
     Return a dask-backed xarray dataset arranged as (init, lead, member, ...).
@@ -896,6 +897,9 @@ def get_monthly_data(
         See nested_file_list_by_init().
     engine : str, optional
         Backend to use for xarray (default is "netcdf4").
+    resolved_files : list of list of str, optional
+        Exact files grouped by initialization and member. Supplying this skips
+        archive discovery; groups must follow ``init_tags`` and ``members``.
 
     Returns
     -------
@@ -929,21 +933,33 @@ def get_monthly_data(
             "preproc(ds0, nlead, field)"
         )
 
-    file_list, valid_inits = nested_file_list_by_init(
-        data_dir=data_dir,
-        case_prefix=case_prefix,
-        members=members,
-        init_tags=init_tags,
-        field=field,
-        realm=realm,
-        grid=grid,
-        freq=freq,
-        ts_split=ts_split,
-        require_all_members=require_all_members,
-        verify_field_name=verify_field_name,
-        verify_coverage=verify_coverage,
-        nlead=nlead,
-    )
+    if resolved_files is None:
+        file_list, valid_inits = nested_file_list_by_init(
+            data_dir=data_dir,
+            case_prefix=case_prefix,
+            members=members,
+            init_tags=init_tags,
+            field=field,
+            realm=realm,
+            grid=grid,
+            freq=freq,
+            ts_split=ts_split,
+            require_all_members=require_all_members,
+            verify_field_name=verify_field_name,
+            verify_coverage=verify_coverage,
+            nlead=nlead,
+        )
+    else:
+        file_list = [[str(path) for path in group] for group in resolved_files]
+        if len(file_list) != len(init_tags):
+            raise ValueError(
+                "resolved_files must contain one file group per initialization tag"
+            )
+        if require_all_members and any(len(group) != len(members) for group in file_list):
+            raise ValueError(
+                "Each resolved_files group must contain every requested member"
+            )
+        valid_inits = list(init_tags)
 
     if not file_list:
         raise ValueError(

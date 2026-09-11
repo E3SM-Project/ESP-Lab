@@ -20,6 +20,7 @@ from workflows.diagnostics.sst_teleconnections import (
     MEMBER_DIMS,
     assemble_teleconnection_dataset,
     corr_and_p,
+    downstream_target_grid,
     ensemble_mean,
     file_signature,
     lat_name,
@@ -145,11 +146,13 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
     """Scan and verify availability of all required upstream MOV products and downstream fields."""
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
     mode = config["selection"]["upstream_mode"].upper().strip()
-    target_grid = config["selection"].get("target_grid", "latlon_1.0x1.0_periodic-True")
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
 
     manifest, _ = load_modes_manifest(diag_root)
     rows: list[dict[str, Any]] = []
+
+    raw_vars = config["selection"].get("downstream_variable") or config["selection"].get("downstream_variables", [])
+    downstream_vars = [raw_vars] if isinstance(raw_vars, str) else list(raw_vars)
 
     for system in config["selection"]["systems"]:
         for init_month in config["selection"]["init_months"]:
@@ -158,8 +161,9 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
             )
             idx_available = idx_fcst.is_file() and idx_obs.is_file()
 
-            for variable in config["selection"]["downstream_variables"]:
+            for variable in downstream_vars:
                 spec = DOWNSTREAM_VARIABLES[variable]
+                target_grid = downstream_target_grid(config, variable)
                 # Check if system produces land component
                 if spec["family"] == "land" and not E3SM_CASES[system].get("supports_land", True):
                     rows.append({
@@ -233,7 +237,7 @@ def open_mov_inputs(
     """Open and extract forecast & observed MOV index and downstream field DataArrays."""
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
     mode = config["selection"]["upstream_mode"].upper().strip()
-    target_grid = config["selection"].get("target_grid", "latlon_1.0x1.0_periodic-True")
+    target_grid = downstream_target_grid(config, variable)
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
 
     idx_fcst_path, idx_obs_path = upstream_mov_paths(
@@ -443,6 +447,7 @@ def ensure_mov_teleconnection_dataset(
     if not parts:
         raise RuntimeError("No MOV teleconnection datasets were computed from inventory.")
 
+    metrics_ds = xr.combine_by_coords(parts, combine_attrs="drop_conflicts")
     metrics_ds = assemble_teleconnection_dataset(parts)
     metrics_ds.attrs.update({
         "schema": "mov_teleconnection_metrics_v1",
@@ -461,4 +466,3 @@ def ensure_mov_teleconnection_dataset(
     metrics_ds.to_netcdf(tmp)
     tmp.replace(out_file)
     return metrics_ds, out_file, "computed"
-

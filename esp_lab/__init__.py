@@ -23,8 +23,10 @@ from . import data_access_e3sm
 from . import data_access_cesm_smyle
 from . import diagnostics
 from . import land_skill
-from . import land_prepared_skill
-from . import psl_skill
+from . import land_input_cache
+from . import leadtime_prepared_cache
+from . import index_reference_skill
+from . import eli_diagnostics
 from . import paths
 from .data_access_smyle import get_monthly_data as get_monthly_data_smyle
 from .data_access_smyle import preprocessor as preprocessor_smyle
@@ -40,8 +42,10 @@ __all__ = [
     "data_access_cesm_smyle",
     "diagnostics",
     "land_skill",
-    "land_prepared_skill",
-    "psl_skill",
+    "land_input_cache",
+    "leadtime_prepared_cache",
+    "index_reference_skill",
+    "eli_diagnostics",
     "paths",
     "get_monthly_data_smyle",
     "preprocessor_smyle",

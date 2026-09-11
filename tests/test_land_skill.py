@@ -381,8 +381,8 @@ def test_land_acc_notebook_uses_explicit_reusable_workflow_contract():
     assert "def " not in source
     assert 'detrend=RUN["detrend"]' in source
     assert "land_skill.land_skill_cache_status" in source
-    assert "land_prepared_skill.prepare_reference_cache" in source
-    assert "land_prepared_skill.prepare_model_cache" in source
+    assert "land_input_cache.prepare_reference_cache" in source
+    assert "land_input_cache.prepare_model_cache" in source
     assert '"auto", "rebuild", "require"' in source
     assert '"inventory", "snapshot", "revision"' in source
     assert "Snapshot mode requires prepared_land.mode='require'" in source
@@ -434,11 +434,13 @@ def test_load_land_hindcast_forces_land_realm(monkeypatch):
         members=["EN00"],
         init_tags=["2000050100"],
         field="TWS",
+        resolved_files=[["/data/TWS_200005_200204.nc"]],
     )
 
     assert called["realm"] == "lnd"
     assert called["field"] == "TWS"
     assert called["verify_field_name"] is True
+    assert called["resolved_files"] == [["/data/TWS_200005_200204.nc"]]
 
 
 def test_seasonal_land_hindcast_preserves_dataset_time_variable(monkeypatch):
@@ -471,6 +473,24 @@ def test_seasonal_land_hindcast_dataset_returns_valid_time(monkeypatch):
     out = land_skill.seasonal_land_hindcast_dataset(monthly, "H2OSNO")
 
     assert {"H2OSNO", "time"}.issubset(out)
+
+
+def test_seasonal_land_hindcast_can_skip_native_grid_finite_scan(monkeypatch):
+    monthly = _land_dataset().rename({"time": "L"}).expand_dims(Y=[2000], M=[0])
+    monthly["time"] = xr.DataArray(
+        np.arange(2).reshape(1, 2),
+        dims=("Y", "L"),
+        coords={"Y": monthly.Y, "L": monthly.L},
+    )
+    monthly["H2OSNO"] = xr.full_like(monthly.H2OSNO, np.nan)
+    monkeypatch.setattr(land_skill.calendar_utils, "mon_to_seas_dask", lambda ds: ds)
+
+    out = land_skill.seasonal_land_hindcast_dataset(
+        monthly, "H2OSNO", validate_finite_leads=False
+    )
+
+    assert out.sizes["L"] == monthly.sizes["L"]
+    assert "dropped_all_missing_leads" not in out.H2OSNO.attrs
 
 
 def test_retain_valid_seasonal_leads_drops_all_missing_endpoint():
@@ -555,3 +575,24 @@ def test_validate_reference_time_coverage_rejects_missing_target_season():
         land_skill.validate_reference_time_coverage(
             reference, {3: years}, valid_time, (2000, 2002)
         )
+
+
+def test_validate_reference_time_coverage_anomaly_skips_climatology_years():
+    valid_time = xr.DataArray(
+        np.asarray(
+            [[cftime.DatetimeNoLeap(year, 7, 15)] for year in (2005, 2007, 2009)],
+            dtype=object,
+        ),
+        dims=("Y", "L"), coords={"Y": [2005, 2007, 2009], "L": [3]},
+    )
+    reference = xr.DataArray(
+        np.ones(3), dims="time",
+        coords={"time": [
+            cftime.DatetimeNoLeap(year, 7, 1) for year in (2005, 2007, 2009)
+        ]},
+    )
+
+    land_skill.validate_reference_time_coverage(
+        reference, {3: [2005, 2007, 2009]}, valid_time, (1981, 2010),
+        reference_is_anomaly=True,
+    )
