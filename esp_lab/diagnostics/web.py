@@ -29,10 +29,17 @@ def _humanize_figure_name(filename: str) -> str:
     if stem.lower().startswith("fig_"):
         stem = stem[4:]
     replacements = {
+        "1a": "1a",
+        "1b": "1b",
+        "2a": "2a",
+        "2b": "2b",
         "acc": "ACC",
+        "conus": "CONUS",
         "eli": "ELI",
         "enso": "ENSO",
         "eof": "EOF",
+        "h2osno": "H2OSNO",
+        "h2osoi": "H2OSOI",
         "iod": "IOD",
         "jja": "JJA",
         "djf": "DJF",
@@ -44,6 +51,8 @@ def _humanize_figure_name(filename: str) -> str:
         "sst": "SST",
         "tc": "TC",
         "trefht": "TREFHT",
+        "ts": "TS",
+        "tws": "TWS",
     }
     words = []
     for token in re.split(r"[_\-]+", stem):
@@ -71,9 +80,18 @@ def _infer_metric(filename: str) -> str:
         "multi_e3sm_rmse_skill_diff",
         "multi_e3sm_rmse_skill_map",
         "multi_e3sm_acc_skill_map",
-        "rmse_diff_compare",
         "rmse_compare_global",
         "rmse_compare_conus",
+        "rmse_diff_compare",
+        "rmse_diff_global",
+        "rmse_difference_compare",
+        "rmse_difference_global",
+        "rmse_difference",
+        "rmse_global",
+        "rmse_conus",
+        "acc_compare",
+        "acc_difference",
+        "acc_distribution",
         "time_series",
         "eof_patterns",
         "acc_skill",
@@ -100,6 +118,10 @@ def _infer_mode(filename: str) -> str:
         ("psl", "PSL"),
         ("prect", "PRECT"),
         ("trefht", "TREFHT"),
+        ("ts", "TS"),
+        ("tws", "TWS"),
+        ("h2osno", "H2OSNO"),
+        ("h2osoi", "H2OSOI"),
     ):
         if token in stem:
             return label
@@ -120,12 +142,19 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
         "pc_time_series",
     }:
         return "MOV"
-    if metric_lower.startswith("leadtime_acc"):
+    if (
+        metric_lower.startswith("leadtime_acc")
+        or "_acc" in stem
+        or stem.startswith(("fig_1a_", "fig_1b_"))
+    ):
         return "LEAD_ACC"
-    if metric_lower.startswith("leadtime_drift"):
+    if metric_lower.startswith("leadtime_drift") or "_drift" in stem:
         return "LEAD_DRIFT"
-    if metric_lower.startswith("leadtime_rmse") or metric_lower.startswith(
-        "rmse_compare"
+    if (
+        metric_lower.startswith("leadtime_rmse")
+        or metric_lower.startswith("rmse_compare")
+        or "_rmse" in stem
+        or stem.startswith(("fig_2a_", "fig_2b_"))
     ):
         return "LEAD_RMSE"
     return "SST_INDEX"
