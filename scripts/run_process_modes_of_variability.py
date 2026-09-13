@@ -174,7 +174,13 @@ def configuration_signature(
     return json.dumps(signature, sort_keys=True, separators=(",", ":"))
 
 
-def cached_product_matches(path: Path, attribute: str, expected: str) -> bool:
+def cached_product_matches(
+    path: Path,
+    attribute: str,
+    expected: str,
+    *,
+    allow_year_superset: bool = False,
+) -> bool:
     """Return True only when a readable cached product has the expected signature."""
     try:
         with xr.open_dataset(path, decode_times=False) as dataset:
@@ -203,7 +209,29 @@ def cached_product_matches(path: Path, attribute: str, expected: str) -> bool:
             return json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return value
 
-    if normalized(actual) != normalized(expected):
+    actual_normalized = normalized(actual)
+    expected_normalized = normalized(expected)
+    if allow_year_superset and actual_normalized != expected_normalized:
+        try:
+            actual_payload = json.loads(actual_normalized)
+            expected_payload = json.loads(expected_normalized)
+            actual_years = actual_payload.get("years")
+            expected_years = expected_payload.get("years")
+            if (
+                isinstance(actual_years, list)
+                and isinstance(expected_years, list)
+                and len(actual_years) == len(expected_years) == 2
+                and actual_years[0] <= expected_years[0]
+                and actual_years[1] >= expected_years[1]
+            ):
+                actual_payload["years"] = expected_years
+                actual_normalized = json.dumps(
+                    actual_payload, sort_keys=True, separators=(",", ":")
+                )
+        except (AttributeError, TypeError, json.JSONDecodeError):
+            pass
+
+    if actual_normalized != expected_normalized:
         LOG.info("%s has an incompatible or missing %s", path, attribute)
         return False
     return True
@@ -741,7 +769,11 @@ def configured_mode_settings(
     return settings_by_mode
 
 
-def expected_product_issues(args: argparse.Namespace) -> list[str]:
+def expected_product_issues(
+    args: argparse.Namespace,
+    *,
+    allow_year_superset: bool = False,
+) -> list[str]:
     """Return missing or incompatible products for a configured runner call."""
     products = expected_products(args)
     issues: list[str] = []
@@ -752,7 +784,12 @@ def expected_product_issues(args: argparse.Namespace) -> list[str]:
         ):
             if not path.is_file():
                 issues.append(f"missing {path}")
-            elif not cached_product_matches(path, attribute, signature):
+            elif not cached_product_matches(
+                path,
+                attribute,
+                signature,
+                allow_year_superset=allow_year_superset,
+            ):
                 issues.append(f"incompatible {path}")
     return issues
 

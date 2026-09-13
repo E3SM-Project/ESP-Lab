@@ -16,6 +16,52 @@ def source(index):
     return ''.join(line for line in cell['source'] if not line.startswith('%'))
 
 
+def test_seasonal_plot_coordinates_match_display_lead_ticks():
+    plotting = source(17).split(
+        "# 2. Monthly ALL-init average panels", 1
+    )[0]
+
+    assert "seasonal_lead_offset = 2" in plotting
+    assert "plot_lead = tmp.L - seasonal_lead_offset" in plotting
+    assert "plot_lead_psl = tmp_psl.L - seasonal_lead_offset" in plotting
+    assert "plot_lead_smyle = tmp_smyle.L - seasonal_lead_offset" in plotting
+    assert "plot_lead_smyle_psl = tmp_smyle_psl.L - seasonal_lead_offset" in plotting
+    assert "plot_lead_nmme = tmp_nmme.L - seasonal_lead_offset" in plotting
+    assert (
+        "plot_lead_nmme_spread = "
+        "tmp_nmme_spread.L.data - seasonal_lead_offset"
+    ) in plotting
+    assert "ax.plot(tmp.L," not in plotting
+    assert "ax2.plot(tmp.L," not in plotting
+
+
+def test_monthly_plot_starts_at_native_lead_one():
+    plotting = source(17).split(
+        "# 2. Monthly ALL-init average panels", 1
+    )[1]
+
+    assert "monthly_xticks = np.arange(12) * 2 + 1" in source(17)
+    assert "monthly_xticks_minor = np.arange(2, 25, 2)" in source(17)
+    assert "monthly_xlim = [0.5, 24.5]" in source(17)
+    assert ".L - 1" not in plotting
+    assert "ax.plot(tmp.L, tmp.corr" in plotting
+    assert "ax2.plot(tmp.L, tmp.rmse" in plotting
+    assert "ax.fill_between(tmp_nmme_spread.L.data," in plotting
+
+
+def test_timeseries_axes_and_lines_use_matching_coordinates():
+    plotting = source(20)
+
+    assert "a.set_yticks(major_yticks)" in plotting
+    assert "a.set_yticks(minor_yticks, minor=True)" in plotting
+    assert "a.set_yticks(minor_yticks, minor=False)" not in plotting
+    assert "a.plot(obs_djf.time.dt.year, obs_djf" in plotting
+    assert "a.plot(psl_djf.time.dt.year, psl_djf" in plotting
+    for prefix in ("case", "smyle", "nmme"):
+        assert f"ax_panel.plot({prefix}_datatime_plot," in plotting
+        assert f"ax_panel.fill_between({prefix}_datatime_plot," in plotting
+
+
 @pytest.mark.parametrize('mode,exists,calls,fails', [
     ('auto', True, 0, False), ('auto', False, 1, False),
     ('require', False, 0, True), ('rebuild', True, 1, False),

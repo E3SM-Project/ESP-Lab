@@ -221,6 +221,24 @@ def test_observation_alignment_treats_nat_verification_time_as_missing():
     assert result.sel(Y=1980, L=24).isnull().all().item()
 
 
+def test_make_obs_like_model_time_supports_dask_model_time():
+    import dask.array as da
+
+    obs = xr.DataArray(
+        np.array([[[3.5]]]),
+        dims=("time", "lat", "lon"),
+        coords={"time": [np.datetime64("1980-07")], "lat": [30.0], "lon": [250.0]},
+    )
+    model_time = xr.DataArray(
+        da.from_array(np.array([[np.datetime64("1980-07")]]), chunks=(1, 1)),
+        dims=("Y", "L"),
+        coords={"Y": [1980], "L": [3]},
+    )
+
+    result = make_obs_like_model_time(obs, model_time, [1980])
+    assert result.sel(Y=1980, L=3).item() == 3.5
+
+
 def test_matched_ensemble_bootstrap_identifies_lower_rmse():
     coords = {
         "Y": [1980, 1981, 1982, 1983],

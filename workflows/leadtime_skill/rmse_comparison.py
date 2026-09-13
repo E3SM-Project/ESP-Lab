@@ -353,16 +353,17 @@ def _select_obs_at_time(obs_da, target_time, allow_missing=False):
 def make_obs_like_model_time(obs_da, model_time, common_years, obs_chunks=None):
     """Convert continuous observed seasons into Y,L observations using model time."""
     model_time = normalize_y_to_year(model_time)
-    model_time = model_time.sel(Y=common_years)
+    model_time = model_time.sel(Y=common_years).transpose("Y", "L").load()
 
     y_labels = [int(y) for y in model_time["Y"].values]
     l_labels = list(model_time["L"].values)
+    time_matrix = model_time.values
 
     obs_by_y = []
-    for y in y_labels:
+    for iy, y in enumerate(y_labels):
         obs_by_l = []
-        for lead in l_labels:
-            target_time = model_time.sel(Y=y, L=lead).item()
+        for il, lead in enumerate(l_labels):
+            target_time = time_matrix[iy, il]
             obs_sel = _select_obs_at_time(obs_da, target_time, allow_missing=True)
             obs_by_l.append(obs_sel)
 
@@ -479,7 +480,7 @@ def compute_direct_rmse(
 
 def finite_fraction(da, name):
     """Print and return finite fraction for a DataArray."""
-    frac = da.notnull().mean().compute().item()
+    frac = float(da.notnull().mean().compute().values)
     print(f"{name}: finite fraction = {frac:.4f}")
     print(f"{name}: dims={da.dims}, shape={da.shape}")
     if "Y" in da.coords:

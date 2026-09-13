@@ -20,6 +20,7 @@ from workflows.diagnostics.sst_teleconnections import (
     MEMBER_DIMS,
     assemble_teleconnection_dataset,
     corr_and_p,
+    downstream_regrid_method,
     downstream_target_grid,
     ensemble_mean,
     file_signature,
@@ -29,9 +30,11 @@ from workflows.diagnostics.sst_teleconnections import (
     linear_detrend,
     match_leads,
     monthly_anomaly,
+    open_dataset_readonly,
     observed_at_valid_time,
     parse_init_years,
     resolve_downstream_paths,
+    requested_leads,
     select_cache,
     standardize_spatial_grid,
     time_year_month,
@@ -147,6 +150,7 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
     mode = config["selection"]["upstream_mode"].upper().strip()
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
+    regrid_method = downstream_regrid_method(config)
 
     manifest, _ = load_modes_manifest(diag_root)
     rows: list[dict[str, Any]] = []
@@ -180,7 +184,7 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
                     })
                     continue
 
-                # If upstream MOV index is not available for this system, skip cleanly
+                # A requested system must not disappear silently from comparisons.
                 if not idx_available:
                     rows.append({
                         "system": system,
@@ -191,7 +195,7 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
                         "index_observed": str(idx_obs),
                         "field_forecast": None,
                         "field_observed": None,
-                        "status": "skipped",
+                        "status": "missing",
                         "detail": f"{mode} index not computed for {system}",
                     })
                     continue
@@ -203,6 +207,7 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
                         variable,
                         diag_root=diag_root,
                         target_grid=target_grid,
+                        regrid_method=regrid_method,
                         allow_ambiguous=allow_ambiguous,
                     )
                     status = "ready"
@@ -227,6 +232,63 @@ def build_mov_teleconnection_inventory(config: Mapping[str, Any]) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
+def ensure_upstream_products(config: Mapping[str, Any]) -> pd.DataFrame:
+    """Validate MOV indices and prepare selected downstream fields when requested.
+
+    MOV indices retain their dedicated EOF/station preprocessing contract and must
+    already exist (normally from 4a). ``inputs.mode`` controls preparation of the
+    downstream atmospheric/land products consumed by this diagnostic.
+    """
+    settings = config.get("inputs", {})
+    if not isinstance(settings, Mapping):
+        raise TypeError("inputs must be a mapping")
+    mode = str(settings.get("mode", "require"))
+    if mode not in {"auto", "rebuild", "require"}:
+        raise ValueError("inputs.mode must be 'auto', 'rebuild', or 'require'")
+
+    inventory = build_mov_teleconnection_inventory(config)
+    if mode == "require":
+        return inventory
+
+    # Only prepare downstream fields for tuples whose MOV predictor is present.
+    eligible = inventory[
+        inventory.apply(
+            lambda row: Path(str(row["index_forecast"])).is_file()
+            and Path(str(row["index_observed"])).is_file(),
+            axis=1,
+        )
+    ]
+    work = eligible if mode == "rebuild" else eligible.query("status == 'missing'")
+    if work.empty:
+        return inventory
+
+    from workflows.diagnostics import teleconnection_inputs as preparation
+
+    pairs_by_variable: dict[str, list[tuple[str, int]]] = {}
+    for row in work.itertuples():
+        if mode == "rebuild" or pd.isna(row.field_forecast) or pd.isna(row.field_observed):
+            pairs_by_variable.setdefault(str(row.variable), []).append(
+                (str(row.system), int(row.init_month))
+            )
+
+    for variable, pairs in pairs_by_variable.items():
+        if DOWNSTREAM_VARIABLES[variable]["family"] == "atmosphere":
+            print(f"Preparing observational {variable} input")
+            preparation.prepare_atmospheric_observation(
+                config, variable, force=(mode == "rebuild")
+            )
+            for system, init_month in pairs:
+                print(f"Preparing {system} {variable}, init={init_month:02d}")
+                preparation.prepare_atmospheric_model(
+                    config, system, init_month, variable
+                )
+        else:
+            print(f"Preparing land {variable} inputs")
+            preparation.prepare_land_inputs(config, variable, pairs)
+
+    return build_mov_teleconnection_inventory(config)
+
+
 def open_mov_inputs(
     system: str,
     init_month: int,
@@ -238,19 +300,21 @@ def open_mov_inputs(
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
     mode = config["selection"]["upstream_mode"].upper().strip()
     target_grid = downstream_target_grid(config, variable)
+    regrid_method = downstream_regrid_method(config)
     allow_ambiguous = config["cache"].get("allow_ambiguous_matches", False)
 
     idx_fcst_path, idx_obs_path = upstream_mov_paths(
         system, init_month, mode, diag_root=diag_root, manifest=manifest
     )
     fld_fcst_path, fld_obs_path = resolve_downstream_paths(
-        system, init_month, variable, diag_root=diag_root, target_grid=target_grid, allow_ambiguous=allow_ambiguous
+        system, init_month, variable, diag_root=diag_root, target_grid=target_grid,
+        regrid_method=regrid_method, allow_ambiguous=allow_ambiguous,
     )
 
-    idx_fcst_ds = xr.open_dataset(idx_fcst_path)
-    idx_obs_ds = xr.open_dataset(idx_obs_path)
-    fld_fcst_ds = xr.open_dataset(fld_fcst_path)
-    fld_obs_ds = xr.open_dataset(fld_obs_path)
+    idx_fcst_ds = open_dataset_readonly(idx_fcst_path)
+    idx_obs_ds = open_dataset_readonly(idx_obs_path)
+    fld_fcst_ds = open_dataset_readonly(fld_fcst_path)
+    fld_obs_ds = open_dataset_readonly(fld_obs_path)
 
     # Standardize MOV index coordinate: prefer mode_index with coord L
     if {"mode_index", "valid_time"} <= set(idx_fcst_ds.data_vars):
@@ -294,9 +358,8 @@ def compute_system_mov_teleconnection(
     fld_obs = monthly_anomaly(fld_obs, clim_years)
 
     lead_pairs = match_leads(idx_time, fld_time, init_dim)
-    requested = config["selection"].get("leads")
-    if requested is not None:
-        requested_set = set(map(int, requested))
+    requested_set = requested_leads(config["selection"])
+    if requested_set is not None:
         lead_pairs = [(idx_lead, fld_lead) for idx_lead, fld_lead in lead_pairs if idx_lead in requested_set]
     if not lead_pairs:
         raise ValueError(f"No common requested leads for {system}, {variable}, init={init_month}")
@@ -447,7 +510,6 @@ def ensure_mov_teleconnection_dataset(
     if not parts:
         raise RuntimeError("No MOV teleconnection datasets were computed from inventory.")
 
-    metrics_ds = xr.combine_by_coords(parts, combine_attrs="drop_conflicts")
     metrics_ds = assemble_teleconnection_dataset(parts)
     metrics_ds.attrs.update({
         "schema": "mov_teleconnection_metrics_v1",

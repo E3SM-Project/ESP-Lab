@@ -127,3 +127,38 @@ def test_generate_webpage_with_discovery_needs_no_existing_manifest(tmp_path):
 def test_generate_webpage_with_discovery_requires_figures(tmp_path):
     with pytest.raises(FileNotFoundError, match="No workflow figures"):
         generate_diagnostics_webpage(tmp_path, discover_figures=True)
+
+
+def test_discover_workflow_figures_recognizes_split_mov_figures(tmp_path):
+    (tmp_path / "fig_nam_eof_patterns_year1.png").touch()
+    (tmp_path / "fig_nam_eof_patterns_year2.png").touch()
+    (tmp_path / "fig_pna_global_teleconnection_patterns_init05.png").touch()
+    (tmp_path / "fig_pna_global_teleconnection_patterns_init11.png").touch()
+
+    manifest = discover_workflow_figures(tmp_path)
+    by_file = {fig["file"]: fig for fig in manifest["figures"]}
+
+    eof_y1 = by_file["fig_nam_eof_patterns_year1.png"]
+    assert eof_y1["mode"] == "NAM"
+    assert eof_y1["metric"] == "eof_patterns"
+    assert eof_y1["group"] == "MOV"
+    assert eof_y1["title"] == "NAM EOF Patterns Year 1"
+
+    eof_y2 = by_file["fig_nam_eof_patterns_year2.png"]
+    assert eof_y2["mode"] == "NAM"
+    assert eof_y2["metric"] == "eof_patterns"
+    assert eof_y2["group"] == "MOV"
+    assert eof_y2["title"] == "NAM EOF Patterns Year 2"
+
+    tele_may = by_file["fig_pna_global_teleconnection_patterns_init05.png"]
+    assert tele_may["mode"] == "PNA"
+    assert tele_may["metric"] == "global_teleconnection_patterns"
+    assert tele_may["group"] == "MOV"
+    assert tele_may["title"] == "PNA Global Teleconnection Patterns May Init"
+
+    tele_nov = by_file["fig_pna_global_teleconnection_patterns_init11.png"]
+    assert tele_nov["mode"] == "PNA"
+    assert tele_nov["metric"] == "global_teleconnection_patterns"
+    assert tele_nov["group"] == "MOV"
+    assert tele_nov["title"] == "PNA Global Teleconnection Patterns Nov Init"
+

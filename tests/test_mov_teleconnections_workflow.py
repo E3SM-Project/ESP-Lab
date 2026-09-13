@@ -59,7 +59,7 @@ def test_mov_provenance_fingerprint():
         assert len(fp1) == 16
 
 
-def test_build_inventory_skips_when_upstream_index_is_missing(tmp_path):
+def test_build_inventory_reports_missing_upstream_index(tmp_path):
     assert mov_telecon.E3SM_CASES["E3SM-4DEnVarOcn"]["supports_land"] is True
 
     config = {
@@ -77,13 +77,51 @@ def test_build_inventory_skips_when_upstream_index_is_missing(tmp_path):
     inv = mov_telecon.build_mov_teleconnection_inventory(config)
     assert len(inv) == 2
 
-    # 4DEnVarOcn supports land fields; both variables are skipped only because the
-    # upstream NAM index is absent from tmp_path.
+    # A requested experiment must not disappear silently when its MOV index is absent.
     h2osno_row = inv.query("variable == 'H2OSNO'").iloc[0]
-    assert h2osno_row["status"] == "skipped"
+    assert h2osno_row["status"] == "missing"
     assert "NAM index not computed" in h2osno_row["detail"]
 
-    # TREFHT should be skipped because upstream NAM index file does not exist in tmp_path
+    # Atmospheric rows follow the same strict missing-input policy.
     trefht_row = inv.query("variable == 'TREFHT'").iloc[0]
-    assert trefht_row["status"] == "skipped"
+    assert trefht_row["status"] == "missing"
     assert "NAM index not computed" in trefht_row["detail"]
+
+
+def test_ensure_upstream_products_prepares_missing_downstream_fields(tmp_path, monkeypatch):
+    index_forecast = tmp_path / "index-model.nc"
+    index_observed = tmp_path / "index-obs.nc"
+    index_forecast.touch()
+    index_observed.touch()
+    missing = pd.DataFrame([{
+        "system": "E3SM-FOSIRL", "init_month": 5, "mode": "NAM",
+        "variable": "TREFHT", "index_forecast": str(index_forecast),
+        "index_observed": str(index_observed), "field_forecast": None,
+        "field_observed": None, "status": "missing", "detail": "missing field",
+    }])
+    ready = missing.assign(
+        field_forecast=str(tmp_path / "field-model.nc"),
+        field_observed=str(tmp_path / "field-obs.nc"), status="ready", detail="",
+    )
+    inventories = iter([missing, ready])
+    monkeypatch.setattr(
+        mov_telecon, "build_mov_teleconnection_inventory", lambda config: next(inventories)
+    )
+
+    from workflows.diagnostics import teleconnection_inputs as preparation
+
+    calls = []
+    monkeypatch.setattr(
+        preparation, "prepare_atmospheric_observation",
+        lambda *args, **kwargs: calls.append(("obs", args, kwargs)),
+    )
+    monkeypatch.setattr(
+        preparation, "prepare_atmospheric_model",
+        lambda *args, **kwargs: calls.append(("model", args, kwargs)),
+    )
+    config = {"inputs": {"mode": "auto"}}
+
+    result = mov_telecon.ensure_upstream_products(config)
+
+    assert result.status.tolist() == ["ready"]
+    assert [call[0] for call in calls] == ["obs", "model"]

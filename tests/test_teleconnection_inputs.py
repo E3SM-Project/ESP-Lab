@@ -32,6 +32,15 @@ def test_target_grid_identity_matches_prepared_atmospheric_contract():
     assert inputs._target_grid_identity(_config()) == "latlon_5.0x5.0_periodic-True"
 
 
+def test_tws_reference_contract_matches_land_workflow():
+    reference = inputs.LAND_REFERENCES["TWS"]
+
+    assert reference["product"] == "C3S_TWSA"
+    assert reference["variable"] == "twsa"
+    assert reference["is_anomaly"] is True
+    assert reference["restrict_model_to_reference_months"] is True
+
+
 def test_atmospheric_expected_uses_selected_run_and_regrid_contract():
     path, expected = inputs._atmospheric_expected(
         _config(), "E3SM-FOSIRL", 5, "TREFHT"
