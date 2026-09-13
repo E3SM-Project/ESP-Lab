@@ -104,6 +104,7 @@ def _smyle_benchmark_issues(
             reasons = smyle_benchmark.existing_benchmark_issues(
                 path, field=field, init_month=int(month), years=years,
                 members=members, nlead=int(settings["monthly_nlead"]), freq=frequency,
+                allow_year_superset=True,
             )
         except (OSError, ValueError, KeyError) as error:
             reasons = [str(error)]
@@ -194,11 +195,19 @@ def ensure_mode_products(settings: Mapping[str, object]) -> dict[str, object]:
             # In auto mode, avoid opening fields and rebuilding the observational
             # EOF reference when every product for this runner call is already
             # compatible. Rebuild mode intentionally executes every call.
-            if ensure_mode == "auto" and not mode_processor.expected_product_issues(args):
+            if ensure_mode == "auto" and not mode_processor.expected_product_issues(
+                args, allow_year_superset=True
+            ):
                 continue
             mode_processor.run(args)
             processor_runs += 1
-    issues = [issue for args in calls for issue in mode_processor.expected_product_issues(args)]
+    issues = [
+        issue
+        for args in calls
+        for issue in mode_processor.expected_product_issues(
+            args, allow_year_superset=True
+        )
+    ]
     if issues:
         raise RuntimeError("Modes-of-variability products are unavailable:\n  - " + "\n  - ".join(issues))
     products: dict[str, dict[str, str]] = {}

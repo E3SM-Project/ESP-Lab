@@ -165,6 +165,40 @@ def test_cached_product_accepts_legacy_nmme_chunk_signature(tmp_path):
     assert cached_product_matches(path, "field_configuration", expected)
 
 
+def test_cached_product_option_accepts_only_an_enclosing_year_range(tmp_path):
+    expected = configuration_signature(
+        "smyle", _settings(), _args(end_year=2011), include_mode=False
+    )
+    superset_payload = json.loads(expected)
+    superset_payload["years"] = [1980, 2018]
+    path = tmp_path / "longer-cache.nc"
+    xr.Dataset(
+        {"value": ("x", [1.0])},
+        attrs={"field_configuration": json.dumps(superset_payload)},
+    ).to_netcdf(path)
+
+    assert not cached_product_matches(path, "field_configuration", expected)
+    assert cached_product_matches(
+        path,
+        "field_configuration",
+        expected,
+        allow_year_superset=True,
+    )
+
+    missing_payload = json.loads(expected)
+    missing_payload["years"] = [1981, 2018]
+    xr.Dataset(
+        {"value": ("x", [1.0])},
+        attrs={"field_configuration": json.dumps(missing_payload)},
+    ).to_netcdf(path)
+    assert not cached_product_matches(
+        path,
+        "field_configuration",
+        expected,
+        allow_year_superset=True,
+    )
+
+
 def test_cached_smyle_product_accepts_legacy_benchmark_layout(tmp_path):
     expected = configuration_signature(
         "smyle", _settings(), _args(), include_mode=False

@@ -536,6 +536,7 @@ def existing_benchmark_issues(
     members: list,
     nlead: int,
     freq: str,
+    allow_year_superset: bool = False,
 ) -> list[str]:
     """Return reasons an existing benchmark cannot safely be reused.
 
@@ -569,9 +570,9 @@ def existing_benchmark_issues(
             [str(value) for value in existing["Y"].values]
             if "Y" in existing.coords else []
         )
-        if actual_y != expected_y:
-            missing = [value for value in expected_y if value not in actual_y]
-            extra = [value for value in actual_y if value not in expected_y]
+        missing = [value for value in expected_y if value not in actual_y]
+        extra = [value for value in actual_y if value not in expected_y]
+        if missing or (extra and not allow_year_superset):
             issues.append(
                 f"initialization cohort differs (Y={len(actual_y)}, "
                 f"expected {len(expected_y)}; missing={missing}, extra={extra})"

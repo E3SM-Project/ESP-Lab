@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from workflows.modes_of_variability import orchestration
+from workflows.modes_of_variability import figure_config
 
 
 NOTEBOOK = (
@@ -87,6 +88,39 @@ def test_skill_figure_separates_initializations_into_panels():
     assert "for init_month in (panel_init_month,)" in source
 
 
+def test_north_pacific_eof_maps_use_nonoverlapping_layout():
+    source = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in json.loads(NOTEBOOK.read_text())["cells"]
+    )
+
+    for mode in ("PNA", "NPO"):
+        settings = figure_config.get_eof_pattern_settings(mode)
+        assert settings["figsize_width"] == 15.5
+        assert settings["panel_title_two_lines"] is False
+        assert settings["metric_box_two_lines"] is True
+    assert 'eof_plot.get("figsize_min_height", 4.0)' in source
+    assert 'title.replace(" (", "\\n(", 1)' in source
+
+
+def test_notebook_uses_centralized_figure_configuration():
+    source = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in json.loads(NOTEBOOK.read_text())["cells"]
+    )
+
+    assert "build_figure_setup(selected_mode, include_nmme=include_nmme)" in source
+    assert "MODE_FIGURE_PROFILES" in source
+    for legacy_block in (
+        "BASE_EOF_PATTERN_SETTINGS",
+        "MODE_LAYOUT_CONFIG",
+        "MODE_MAP_LABEL_CONFIG",
+        "EOF_PATTERN_ONLY_REFINEMENTS",
+        "BASE_TELECONNECTION_SETTINGS",
+    ):
+        assert legacy_block not in source
+
+
 def test_legacy_mov_drivers_are_grouped_as_optional_preprocessing():
     root = NOTEBOOK.parents[1]
     preprocessing = NOTEBOOK.parent / "preprocessing" / "mov"
@@ -116,7 +150,7 @@ def test_core_sources_are_ensured_per_policy(
         orchestration.mode_processor, "run", lambda args: processor_args.append(args)
     )
     monkeypatch.setattr(
-        orchestration.mode_processor, "expected_product_issues", lambda args: []
+        orchestration.mode_processor, "expected_product_issues", lambda args, **kwargs: []
     )
     monkeypatch.setattr(
         orchestration.mode_processor, "expected_products", lambda args: {}
@@ -161,7 +195,7 @@ def test_auto_runs_only_incompatible_processor_call(tmp_path, monkeypatch):
     def call_key(args):
         return getattr(args, "e3sm_cache_tag", "obs-smyle")
 
-    def issues(args):
+    def issues(args, **kwargs):
         key = call_key(args)
         return [f"stale {key}"] if key == "case_a" and key not in completed else []
 
@@ -186,7 +220,7 @@ def test_require_mode_reports_incompatible_products(tmp_path, monkeypatch):
     monkeypatch.setattr(
         orchestration.mode_processor,
         "expected_product_issues",
-        lambda args: ["missing expected.nc"] if "smyle" in args.sources else [],
+        lambda args, **kwargs: ["missing expected.nc"] if "smyle" in args.sources else [],
     )
     with pytest.raises(RuntimeError, match="missing expected.nc"):
         orchestration.ensure_mode_products(
@@ -232,3 +266,28 @@ def test_auto_builds_only_stale_smyle_month(tmp_path, monkeypatch):
 
     orchestration._ensure_smyle_benchmarks(settings, "auto")
     assert processed == [11]
+
+
+def test_mov_validation_allows_smyle_year_superset(tmp_path, monkeypatch):
+    settings = _settings(tmp_path, years=(1980, 2011))
+    calls = []
+
+    monkeypatch.setattr(
+        orchestration.analysis.smyle_access,
+        "benchmark_path",
+        lambda field, month, root, **kwargs: Path(root) / f"{month:02d}.nc",
+    )
+
+    def issues(path, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        orchestration.smyle_benchmark, "existing_benchmark_issues", issues
+    )
+
+    _, _, found = orchestration._smyle_benchmark_issues(settings)
+
+    assert found == {}
+    assert len(calls) == 2
+    assert all(call["allow_year_superset"] is True for call in calls)

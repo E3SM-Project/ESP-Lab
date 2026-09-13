@@ -53,7 +53,13 @@ def _humanize_figure_name(filename: str) -> str:
         "trefht": "TREFHT",
         "ts": "TS",
         "tws": "TWS",
+        "year1": "Year 1",
+        "year2": "Year 2",
+        "init05": "May Init",
+        "init11": "Nov Init",
     }
+    for mode in CLIMATE_MODES:
+        replacements[mode.lower()] = mode
     words = []
     for token in re.split(r"[_\-]+", stem):
         lower = token.lower()
@@ -105,6 +111,15 @@ def _infer_metric(filename: str) -> str:
 def _infer_mode(filename: str) -> str:
     """Infer a broad diagnostic group for a figure without metadata."""
     stem = Path(filename).stem.lower()
+    for mode in sorted(CLIMATE_MODES, key=len, reverse=True):
+        mode_lower = mode.lower()
+        if (
+            stem.startswith(f"fig_{mode_lower}_")
+            or f"_{mode_lower}_" in stem
+            or stem.endswith(f"_{mode_lower}")
+            or stem == f"fig_{mode_lower}"
+        ):
+            return mode
     for token, label in (
         ("nmme", "NMME"),
         ("nino", "ENSO"),

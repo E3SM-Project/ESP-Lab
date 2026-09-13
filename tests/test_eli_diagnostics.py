@@ -2,8 +2,10 @@ import cftime
 import numpy as np
 import pandas as pd
 import xarray as xr
+from dask.base import is_dask_collection
 
 from esp_lab import eli_diagnostics
+from esp_lab.utils.resource_utils import ResourceTracker
 
 
 def _hindcast(years, missing=None):
@@ -71,3 +73,34 @@ def test_common_target_years_are_intersected_per_lead():
     )
 
     assert cohorts == {1: [2000, 2002, 2003], 2: [2000, 2001, 2002, 2003]}
+
+
+def test_model_hindcasts_can_remain_dask_backed(tmp_path):
+    values, valid_time = _hindcast([2000, 2001, 2002, 2003])
+    path = tmp_path / "model_05_2_2.nc"
+    xr.Dataset({"eli": values, "time": valid_time}).to_netcdf(path)
+    spec = eli_diagnostics.ELIModelSpec(
+        key="model",
+        label="Model",
+        root=tmp_path,
+        filename_template="model_{init_month:02d}_{nens}_{nlead}.nc",
+        ensemble_size=2,
+        color="black",
+        marker="o",
+    )
+    tracker = ResourceTracker()
+
+    data, times, _ = eli_diagnostics.load_model_hindcasts(
+        {"model": spec},
+        [5],
+        nlead=2,
+        start_year=2000,
+        end_year=2003,
+        chunks={"Y": -1, "L": 1, "M": -1},
+        resource_tracker=tracker,
+    )
+
+    assert is_dask_collection(data["model"][5].data)
+    assert not is_dask_collection(times["model"][5].data)
+    np.testing.assert_array_equal(data["model"][5].compute(), values)
+    tracker.close()

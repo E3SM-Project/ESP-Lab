@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -51,13 +51,21 @@ def load_model_hindcasts(
     nlead: int,
     start_year: int,
     end_year: int,
+    chunks: Mapping[str, int] | str | None = None,
+    resource_tracker: Any | None = None,
 ) -> tuple[dict, dict, dict]:
     """Load and validate every requested model/month ELI cache.
 
     Returns nested dictionaries containing ELI data, valid times, and source
     provenance.  All products are normalized to integer initialization-year
-    coordinates so E3SM and CESM-SMYLE can be compared directly.
+    coordinates so E3SM and CESM-SMYLE can be compared directly. Passing
+    ``chunks`` keeps the ELI arrays Dask-backed; in that mode a resource
+    tracker is required so the open NetCDF datasets remain valid until the
+    notebook's explicit cleanup step.
     """
+
+    if chunks is not None and resource_tracker is None:
+        raise ValueError("resource_tracker is required when loading ELI data lazily")
 
     expected_years = np.arange(start_year, end_year + 1, dtype=int)
     data = {key: {} for key in specs}
@@ -72,14 +80,23 @@ def load_model_hindcasts(
                 missing.append(path)
                 continue
 
-            with xr.open_dataset(path) as source:
+            source = xr.open_dataset(path, chunks=chunks)
+            try:
                 required = {"eli", "time"}
                 absent = required - set(source.variables)
                 if absent:
                     raise ValueError(f"{path} is missing variables {sorted(absent)}")
-                eli = source["eli"].load()
+                eli = source["eli"]
                 time = source["time"].load()
                 attrs = dict(source.attrs)
+                if chunks is None:
+                    eli.load()
+                else:
+                    resource_tracker.track(source)
+                    source = None
+            finally:
+                if source is not None:
+                    source.close()
 
             if eli.dims != ("Y", "L", "M"):
                 raise ValueError(f"{path}: expected eli dims ('Y', 'L', 'M'), got {eli.dims}")

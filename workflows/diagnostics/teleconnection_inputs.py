@@ -76,6 +76,17 @@ LAND_REFERENCES: dict[str, dict[str, Any]] = {
         "retain_missing_seasons": True,
         "restrict_model_to_reference_months": True,
     },
+    "TWS": {
+        "path": "/global/cfs/cdirs/e3sm/zhan391/data/C3S_TWSA/1x1/monthly/twsa_*.nc",
+        "variable": "twsa", "product": "C3S_TWSA",
+        "documentation": "C3S terrestrial water storage anomaly v1.0; doi:10.5880/GFZ.C3S_TWSA_v1.0",
+        "source_revision": "c3s_twsa_v1.0_archive_2026-09-09",
+        "scale": 1.0, "offset": 0.0, "output_units": "mm",
+        "is_anomaly": True, "already_seasonal": False,
+        "require_complete_calendar_months": True,
+        "retain_missing_seasons": True,
+        "restrict_model_to_reference_months": True,
+    },
     "H2OSOI": {
         "path": "/global/cfs/cdirs/e3sm/zhan391/data/CPC_SOM/monthly/soilw_*.nc",
         "variable": "soilw", "product": "CPC_Soil_Moisture_V2",

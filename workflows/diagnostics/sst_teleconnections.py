@@ -112,6 +112,14 @@ DOWNSTREAM_VARIABLES: dict[str, dict[str, Any]] = {
         "reference": "C3S_SWE",
         "units": "mm",
     },
+    "TWS": {
+        "realm": "lnd",
+        "family": "land",
+        "label": "total water storage anomaly",
+        "reference": "C3S_TWSA",
+        "units": "mm",
+        "reference_is_anomaly": True,
+    },
     "H2OSOI": {
         "realm": "lnd",
         "family": "land",
@@ -230,7 +238,10 @@ def linear_detrend(da: xr.DataArray, dim: str = "sample") -> xr.DataArray:
 
 def monthly_anomaly(obs: xr.DataArray, clim_years: tuple[int, int]) -> xr.DataArray:
     """Compute monthly anomalies from observational monthly series using climatology years."""
-    if "time" not in obs.dims:
+    is_anomaly = obs.attrs.get("reference_is_anomaly", False)
+    if isinstance(is_anomaly, str):
+        is_anomaly = is_anomaly.strip().lower() == "true"
+    if bool(is_anomaly) or "time" not in obs.dims:
         return obs
     y0, y1 = clim_years
     clim = obs.sel(time=slice(str(y0), str(y1))).groupby("time.month").mean("time", skipna=True)
@@ -641,15 +652,18 @@ def resolve_downstream_paths(
     return model, obs
 
 
-def open_dataset_readonly(path: Path | str) -> xr.Dataset:
+def open_dataset_readonly(
+    path: Path | str, *, chunks: Mapping[str, int] | str | None = None
+) -> xr.Dataset:
     """Open a cache, falling back from NetCDF4 for transient HDF handle failures."""
+    open_kwargs = {} if chunks is None else {"chunks": chunks}
     try:
-        return xr.open_dataset(path)
+        return xr.open_dataset(path, **open_kwargs)
     except RuntimeError as exc:
         if "HDF error" not in str(exc):
             raise
         try:
-            return xr.open_dataset(path, engine="h5netcdf")
+            return xr.open_dataset(path, engine="h5netcdf", **open_kwargs)
         except Exception as fallback_exc:
             raise RuntimeError(
                 f"Could not open NetCDF cache with netCDF4 or h5netcdf: {path}"
@@ -798,7 +812,12 @@ def ensure_upstream_products(config: Mapping[str, Any]) -> pd.DataFrame:
 
 
 def open_inputs(
-    system: str, init_month: int, variable: str, config: Mapping[str, Any]
+    system: str,
+    init_month: int,
+    variable: str,
+    config: Mapping[str, Any],
+    *,
+    resource_tracker: Any | None = None,
 ) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray, list[Path]]:
     """Open and extract forecast & observed SST index and downstream field DataArrays."""
     diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
@@ -827,10 +846,24 @@ def open_inputs(
         allow_ambiguous=allow_ambiguous,
     )
 
-    idx_fcst_ds = open_dataset_readonly(idx_fcst_path)
-    idx_obs_ds = open_dataset_readonly(idx_obs_path)
-    fld_fcst_ds = open_dataset_readonly(fld_fcst_path)
-    fld_obs_ds = open_dataset_readonly(fld_obs_path)
+    chunks = config.get("dask", {}).get("chunks")
+    datasets = []
+    try:
+        for path in (idx_fcst_path, idx_obs_path, fld_fcst_path, fld_obs_path):
+            dataset = (
+                open_dataset_readonly(path)
+                if chunks is None
+                else open_dataset_readonly(path, chunks=chunks)
+            )
+            if resource_tracker is not None:
+                dataset = resource_tracker.track(dataset)
+            datasets.append(dataset)
+    except Exception:
+        if resource_tracker is None:
+            for dataset in reversed(datasets):
+                dataset.close()
+        raise
+    idx_fcst_ds, idx_obs_ds, fld_fcst_ds, fld_obs_ds = datasets
 
     index_variable = "eli" if index_name == "ELI" else "sst"
     idx_fcst = idx_fcst_ds[index_variable]
@@ -846,11 +879,16 @@ def open_inputs(
 
 
 def compute_system_teleconnection(
-    system: str, init_month: int, variable: str, config: Mapping[str, Any]
+    system: str,
+    init_month: int,
+    variable: str,
+    config: Mapping[str, Any],
+    *,
+    resource_tracker: Any | None = None,
 ) -> xr.Dataset:
     """Compute lead-dependent teleconnection metrics for one (system, init_month, variable) tuple."""
     idx_fcst, idx_time, idx_obs, fld_fcst, fld_time, fld_obs, sources = open_inputs(
-        system, init_month, variable, config
+        system, init_month, variable, config, resource_tracker=resource_tracker
     )
     init_dim = "Y" if "Y" in idx_fcst.dims else "year"
 
@@ -1046,6 +1084,8 @@ def assemble_teleconnection_dataset(
 def ensure_teleconnection_dataset(
     config: Mapping[str, Any],
     inventory: pd.DataFrame | None = None,
+    *,
+    resource_tracker: Any | None = None,
 ) -> tuple[xr.Dataset, Path, str]:
     """Load or compute cached teleconnection metrics across all configured products."""
     if inventory is None:
@@ -1075,7 +1115,10 @@ def ensure_teleconnection_dataset(
     cache_mode = config["cache"].get("mode", "auto")
 
     if out_file.is_file() and cache_mode != "rebuild":
-        metrics_ds = xr.open_dataset(out_file)
+        chunks = config.get("dask", {}).get("chunks")
+        metrics_ds = open_dataset_readonly(out_file, chunks=chunks)
+        if resource_tracker is not None:
+            metrics_ds = resource_tracker.track(metrics_ds)
         return metrics_ds, out_file, "loaded"
 
     if cache_mode == "require":
@@ -1086,7 +1129,13 @@ def ensure_teleconnection_dataset(
         if getattr(row, "status", "") != "ready":
             continue
         print(f"Computing {row.system} init={row.init_month:02d} {index_name} -> {row.variable}")
-        part = compute_system_teleconnection(row.system, row.init_month, row.variable, config)
+        part = compute_system_teleconnection(
+            row.system,
+            row.init_month,
+            row.variable,
+            config,
+            resource_tracker=resource_tracker,
+        )
         parts.append(part)
 
     metrics_ds = assemble_teleconnection_dataset(parts)
@@ -1101,6 +1150,9 @@ def ensure_teleconnection_dataset(
         "season_definition": "centered three-month means inherited from upstream caches",
         "pvalue_note": "classical Pearson t test; no field-significance or autocorrelation correction",
     })
+
+    if config.get("dask", {}).get("persist_metrics", False):
+        metrics_ds = metrics_ds.persist()
 
     output_dir.mkdir(parents=True, exist_ok=True)
     tmp = out_file.with_suffix(".tmp.nc")

@@ -7,8 +7,35 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from dask.base import is_dask_collection
 
+from esp_lab.utils.resource_utils import ResourceTracker
 from workflows.diagnostics import sst_teleconnections as telecon
+
+
+def test_tws_is_registered_with_anomaly_reference():
+    assert telecon.DOWNSTREAM_VARIABLES["TWS"] == {
+        "realm": "lnd",
+        "family": "land",
+        "label": "total water storage anomaly",
+        "reference": "C3S_TWSA",
+        "units": "mm",
+        "reference_is_anomaly": True,
+    }
+
+
+def test_monthly_anomaly_preserves_precomputed_reference_anomaly():
+    time = pd.date_range("2002-01-01", periods=24, freq="MS")
+    anomaly = xr.DataArray(
+        np.arange(24, dtype=float),
+        dims="time",
+        coords={"time": time},
+        attrs={"reference_is_anomaly": "true"},
+    )
+
+    result = telecon.monthly_anomaly(anomaly, (1981, 2010))
+
+    assert result.identical(anomaly)
 
 
 def test_upstream_eli_paths_support_regridded_and_native_caches(tmp_path):
@@ -55,6 +82,46 @@ def test_open_inputs_reads_eli_variable(monkeypatch, tmp_path):
 
     assert index_forecast.name == "eli"
     assert index_observed.name == "eli"
+
+
+def test_open_inputs_supports_tracked_dask_reads(monkeypatch, tmp_path):
+    paths = [
+        tmp_path / name
+        for name in ("index-model.nc", "index-obs.nc", "field-model.nc", "field-obs.nc")
+    ]
+    xr.Dataset({"eli": ("Y", [180.0]), "time": ("Y", [0])}).to_netcdf(paths[0])
+    xr.Dataset({"eli": ("time", [181.0])}).to_netcdf(paths[1])
+    xr.Dataset({"anomaly": ("Y", [1.0]), "time": ("Y", [0])}).to_netcdf(paths[2])
+    xr.Dataset({"observation": ("time", [2.0])}).to_netcdf(paths[3])
+    monkeypatch.setattr(
+        telecon, "upstream_sst_paths", lambda *args, **kwargs: tuple(paths[:2])
+    )
+    monkeypatch.setattr(
+        telecon, "resolve_downstream_paths", lambda *args, **kwargs: tuple(paths[2:])
+    )
+    config = {
+        "paths": {"diag_root": str(tmp_path)},
+        "selection": {"upstream_index": "ELI"},
+        "regrid": {
+            "target_dlat": 5.0,
+            "target_dlon": 5.0,
+            "method": "conservative",
+            "periodic": True,
+        },
+        "cache": {"allow_ambiguous_matches": False},
+        "inputs": {"eli_grid": "regridded"},
+        "dask": {"chunks": "auto"},
+    }
+    tracker = ResourceTracker()
+
+    index_forecast, _, index_observed, field_forecast, *_ = telecon.open_inputs(
+        "E3SM-FOSIRL", 5, "PRECT", config, resource_tracker=tracker
+    )
+
+    assert is_dask_collection(index_forecast.data)
+    assert is_dask_collection(index_observed.data)
+    assert is_dask_collection(field_forecast.data)
+    tracker.close()
 
 
 def test_downstream_target_grid_supports_independent_and_family_settings():
