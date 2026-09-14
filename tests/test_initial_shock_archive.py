@@ -60,7 +60,17 @@ def test_archive_compute_cache_reuse_and_configuration_change(archive_inputs):
     settings['metric']['block_months']=3
     with pytest.raises(ValueError,match='Configuration changed'):
         archive.compute_archive_plan(second,settings,variable)
-    assert archive.plan_archive_run(settings,cases,variable)[0]['path'] != second[0]['path']
+    changed = archive.plan_archive_run(settings,cases,variable)[0]
+    assert changed['path'] == second[0]['path']
+    assert changed['rebuild']
+
+
+def test_archive_cache_uses_stable_exact_period_filename(archive_inputs):
+    settings, cases, variable = archive_inputs
+
+    task = archive.plan_archive_run(settings, cases, variable)[0]
+
+    assert Path(task['path']).name == 'init05_1980_1981.nc'
 
 
 def test_plot_source_file_is_excluded_from_cache_identity(archive_inputs, monkeypatch):
@@ -122,7 +132,7 @@ def test_sources_changing_after_plan_are_rejected(archive_inputs):
 
 def test_notebook_cells_smoke_execution(archive_inputs,tmp_path):
     settings,cases,variable=archive_inputs
-    notebook=Path(__file__).parents[1]/'jupyter/6a_initial_shock_std_index.ipynb'
+    notebook=Path(__file__).parents[1]/'jupyter/6a_init_change_std_index.ipynb'
     nb=json.loads(notebook.read_text())
     settings['paths']['figure_outdir']=str(tmp_path/'figures')
     settings['dask']={'enabled':False}
@@ -141,6 +151,7 @@ def test_notebook_cells_smoke_execution(archive_inputs,tmp_path):
             exec(compile(''.join(cell['source']),f'notebook cell {i}','exec'),ns)
     assert list((tmp_path/'figures').glob('*_signed_normalized_change.png'))
     assert list((tmp_path/'figures').glob('*_absolute_normalized_change.png'))
+    assert list((tmp_path/'figures').glob('*_annual_block_evolution.png'))
     assert list((tmp_path/'figures').glob('*_summary.csv'))
 
 
@@ -199,7 +210,7 @@ def test_rmse_mae_archive_cache_and_notebook_smoke(archive_inputs, tmp_path):
     assert not second[0]['rebuild'] and not second[0]['error_rebuild']
     xr.testing.assert_allclose(error_archive.compute_archive_plan(second, settings, variable)[5], result)
 
-    notebook = Path(__file__).parents[1] / 'jupyter/6b_initial_shock_rmse_mae_index.ipynb'
+    notebook = Path(__file__).parents[1] / 'jupyter/6b_init_change_rmse_mae_index.ipynb'
     nb = json.loads(notebook.read_text())
     ns = {'WORKFLOW_SETTINGS': settings, 'E3SM_CASES': cases, 'variable': variable,
           'field': 'TREFHT', 'RMSE_RANGES': NCL_RMSE_RANGES,

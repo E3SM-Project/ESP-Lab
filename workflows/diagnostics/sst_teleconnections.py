@@ -309,6 +309,18 @@ def corr_and_p(
     return r.rename("correlation"), p.rename("pvalue"), n.rename("sample_count")
 
 
+def minimum_years_for_variable(config: Mapping[str, Any], variable: str) -> int:
+    """Return the validated correlation sample threshold for one variable."""
+    analysis = config.get("analysis", {})
+    overrides = analysis.get("minimum_years_by_variable", {})
+    if not isinstance(overrides, Mapping):
+        raise TypeError("analysis.minimum_years_by_variable must be a mapping")
+    value = overrides.get(variable, analysis.get("minimum_years", 20))
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 3:
+        raise ValueError("minimum_years thresholds must be integers of at least 3")
+    return int(value)
+
+
 def lat_name(da: xr.DataArray) -> str:
     """Find latitude coordinate name."""
     for name in ("lat", "latitude"):
@@ -894,6 +906,7 @@ def compute_system_teleconnection(
 
     selection = teleconnection_config(config)
     clim_years = selection["climatology_years"]
+    minimum_years = minimum_years_for_variable(config, variable)
     idx_fcst = lead_anomaly(idx_fcst, idx_time, clim_years)
     fld_fcst = lead_anomaly(fld_fcst, fld_time, clim_years)
     idx_obs = monthly_anomaly(idx_obs, clim_years)
@@ -911,7 +924,7 @@ def compute_system_teleconnection(
     fld_init_years = parse_init_years(fld_fcst[init_dim].values)
 
     common_years = sorted(list(set(idx_init_years) & set(fld_init_years) & set(range(y0, y1 + 1))))
-    if len(common_years) < config["analysis"].get("minimum_years", 20):
+    if len(common_years) < minimum_years:
         raise ValueError(
             f"Insufficient common verification years ({len(common_years)}) for {system}, {variable}, init={init_month}"
         )
@@ -951,8 +964,8 @@ def compute_system_teleconnection(
         if config["analysis"].get("detrend", True):
             xmod, ymod, xobs, yobs = map(linear_detrend, (xmod, ymod, xobs, yobs))
 
-        model_r, model_p, model_n = corr_and_p(xmod, ymod, minimum_years=config["analysis"].get("minimum_years", 20))
-        obs_r, obs_p, obs_n = corr_and_p(xobs, yobs, minimum_years=config["analysis"].get("minimum_years", 20))
+        model_r, model_p, model_n = corr_and_p(xmod, ymod, minimum_years=minimum_years)
+        obs_r, obs_p, obs_n = corr_and_p(xobs, yobs, minimum_years=minimum_years)
         model_r, obs_r = xr.align(model_r, obs_r, join="exact")
 
         metrics = weighted_spatial_metrics(
@@ -973,6 +986,7 @@ def compute_system_teleconnection(
             "observed_pvalue": obs_p,
             "model_sample_count": model_n,
             "observed_sample_count": obs_n,
+            "minimum_sample_threshold": xr.DataArray(minimum_years),
             **{name: da for name, da in metrics.data_vars.items()},
             "downstream_lead": xr.DataArray(int(field_lead)),
         }).expand_dims(L=[int(index_lead)])
@@ -1098,20 +1112,11 @@ def ensure_teleconnection_dataset(
             + missing.to_string(index=False)
         )
 
-    all_source_paths: list[str] = []
-    for row in inventory.itertuples():
-        if getattr(row, "status", "") == "ready":
-            all_source_paths.extend([
-                row.index_forecast,
-                row.index_observed,
-                row.field_forecast,
-                row.field_observed,
-            ])
-
-    fingerprint = compute_provenance_fingerprint(config, all_source_paths)
+    out_file, fingerprint, all_source_paths = _teleconnection_cache_details(
+        config, inventory
+    )
     index_name = teleconnection_config(config)["upstream_index"]
-    output_dir = Path(config["paths"].get("output_dir", DEFAULT_OUTPUT_DIR))
-    out_file = output_dir / f"teleconnection_{index_name.replace('.', '')}_{fingerprint}.nc"
+    output_dir = out_file.parent
     cache_mode = config["cache"].get("mode", "auto")
 
     if out_file.is_file() and cache_mode != "rebuild":
@@ -1159,3 +1164,38 @@ def ensure_teleconnection_dataset(
     metrics_ds.to_netcdf(tmp)
     tmp.replace(out_file)
     return metrics_ds, out_file, "computed"
+
+
+def _ready_source_paths(inventory: pd.DataFrame) -> list[str]:
+    """Return the source paths consumed by ready inventory rows."""
+    paths: list[str] = []
+    for row in inventory.itertuples():
+        if getattr(row, "status", "") == "ready":
+            paths.extend([
+                row.index_forecast,
+                row.index_observed,
+                row.field_forecast,
+                row.field_observed,
+            ])
+    return paths
+
+
+def teleconnection_cache_path(
+    config: Mapping[str, Any], inventory: pd.DataFrame
+) -> Path:
+    """Return the exact provenance-aware output path without opening a cache."""
+    return _teleconnection_cache_details(config, inventory)[0]
+
+
+def _teleconnection_cache_details(
+    config: Mapping[str, Any], inventory: pd.DataFrame
+) -> tuple[Path, str, list[str]]:
+    """Build one internally consistent cache identity from the inventory."""
+    source_paths = _ready_source_paths(inventory)
+    fingerprint = compute_provenance_fingerprint(
+        config, source_paths
+    )
+    index_name = teleconnection_config(config)["upstream_index"]
+    output_dir = Path(config["paths"].get("output_dir", DEFAULT_OUTPUT_DIR))
+    path = output_dir / f"teleconnection_{index_name.replace('.', '')}_{fingerprint}.nc"
+    return path, fingerprint, source_paths

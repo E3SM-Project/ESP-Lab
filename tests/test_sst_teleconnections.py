@@ -407,6 +407,32 @@ def test_corr_and_p():
     assert np.all(np.isnan(r_masked.values))
 
 
+def test_minimum_years_supports_tws_only_override():
+    config = {
+        "analysis": {
+            "minimum_years": 20,
+            "minimum_years_by_variable": {"TWS": 7},
+        }
+    }
+
+    assert telecon.minimum_years_for_variable(config, "TWS") == 7
+    assert telecon.minimum_years_for_variable(config, "H2OSNO") == 20
+    assert telecon.minimum_years_for_variable(config, "TREFHT") == 20
+
+
+@pytest.mark.parametrize("value", [True, 2, 7.5])
+def test_minimum_years_rejects_invalid_override(value):
+    config = {
+        "analysis": {
+            "minimum_years": 20,
+            "minimum_years_by_variable": {"TWS": value},
+        }
+    }
+
+    with pytest.raises(ValueError, match="at least 3"):
+        telecon.minimum_years_for_variable(config, "TWS")
+
+
 def test_weighted_spatial_metrics():
     lat = np.array([-45.0, 0.0, 45.0])
     lon = np.array([0.0, 180.0])

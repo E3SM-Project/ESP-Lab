@@ -3,6 +3,18 @@ from typing import Optional, Tuple
 import dask
 from dask.distributed import Client
 
+
+def _connect_owned_cluster(cluster):
+    """Attach a client, closing a partially started owned cluster on failure."""
+    try:
+        return cluster, Client(cluster)
+    except BaseException:
+        try:
+            cluster.close()
+        except Exception:
+            pass
+        raise
+
 @dataclass
 class DaskConfig:
     cluster_type: str = "local"   # local, slurm, casper_pbs, none
@@ -60,8 +72,7 @@ def get_cluster_client(cfg: DaskConfig) -> Tuple[object | None, object | None]:
             threads_per_worker=1,
             memory_limit=cfg.memory_limit,
         )
-        client = Client(cluster)
-        return cluster, client
+        return _connect_owned_cluster(cluster)
 
     # -----------------------
     # SLURM (Perlmutter)
@@ -110,8 +121,7 @@ def get_cluster_client(cfg: DaskConfig) -> Tuple[object | None, object | None]:
         )
         cluster.scale(cfg.workers)
 
-        client = Client(cluster)
-        return cluster, client
+        return _connect_owned_cluster(cluster)
 
     # -----------------------
     # Casper (NCAR)
@@ -131,8 +141,7 @@ def get_cluster_client(cfg: DaskConfig) -> Tuple[object | None, object | None]:
         )
         cluster.scale(cfg.workers)
 
-        client = Client(cluster)
-        return cluster, client
+        return _connect_owned_cluster(cluster)
 
     raise ValueError(f"Unknown cluster_type: {cfg.cluster_type}")
 
