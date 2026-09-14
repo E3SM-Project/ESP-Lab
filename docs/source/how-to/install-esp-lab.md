@@ -2,32 +2,28 @@
 
 esp-lab can be installed in three ways:
 
-```{eval-rst}
-.. tab:: pip
+## pip
 
-    Using the `pip <https://pypi.org/project/pip/>`__ package manager:
+Using the [pip](https://pypi.org/project/pip/) package manager:
 
-    .. code:: bash
+```bash
+python -m pip install esp-lab
+```
 
-        $ python -m pip install esp-lab
+## conda
 
-.. tab:: conda
+Using the [conda](https://conda.io/) package manager that comes with Anaconda/Miniconda:
 
-    Using the `conda <https://conda.io/>`__ package manager that comes with the
-    Anaconda/Miniconda distribution:
+```bash
+conda install esp-lab --channel conda-forge
+```
 
-    .. code:: bash
+## Development version
 
-        $ conda install esp-lab --channel conda-forge
+To install a development version from source:
 
-.. tab:: Development version
-
-    To install a development version from source:
-
-    .. code:: bash
-
-        $ git clone https://github.com/CESM-ESPWG/ESP-Lab
-        $ cd esp-lab
-        $ python -m pip install -e .
-
+```bash
+git clone https://github.com/CESM-ESPWG/ESP-Lab.git
+cd ESP-Lab
+python -m pip install -e .
 ```
