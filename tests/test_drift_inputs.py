@@ -46,7 +46,7 @@ class DriftInputsTests(unittest.TestCase):
 
     def test_first_build_numeric_values_and_fast_reuse(self):
         rows = self.build()
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(rows), len(self.kw['sources']))
         with xr.open_dataset(rows.iloc[0]['path']) as result:
             np.testing.assert_allclose(result.e_obs, -0.5, atol=1e-10)
             np.testing.assert_allclose(result.skill_rmse, 0.5, atol=1e-10)
@@ -56,7 +56,7 @@ class DriftInputsTests(unittest.TestCase):
              patch.object(inputs, 'default_variable_config', side_effect=AssertionError('must not scan raw archives')):
             again = inputs.ensure_regional_products(**self.kw)
         self.assertEqual(list(rows.path), list(again.path))
-        self.assertEqual(len(list(self.kw['output_root'].glob('*.nc'))), 2)
+        self.assertEqual(len(list(self.kw['output_root'].glob('*.nc'))), len(self.kw['sources']))
 
     def test_require_missing_writes_nothing(self):
         with self.assertRaises(FileNotFoundError):
@@ -94,8 +94,12 @@ class DriftInputsTests(unittest.TestCase):
                 sources=self.kw['sources'],
                 regions=self.kw['regions'],
             )
-            self.assertEqual(len(manifest), 2)
+            self.assertEqual(len(manifest), len(self.kw['sources']))
             self.assertTrue(all(Path(p).is_file() for p in manifest['path']))
+
+    def test_unknown_sources_rejected(self):
+        with self.assertRaises(ValueError):
+            inputs.ensure_regional_products(**{**self.kw, 'sources': ['NotARealModel']})
 
 
 if __name__ == '__main__':

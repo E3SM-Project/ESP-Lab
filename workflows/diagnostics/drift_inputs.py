@@ -14,10 +14,11 @@ from esp_lab.diagnostics.two_reference_drift import (
     run_pipeline,
 )
 
-SOURCES = ('JRA55_FOSIRL', 'Reanalysis')
+SOURCES = ('JRA55_FOSIRL', 'Reanalysis', '4DEnVarOcn')
 CASE_PREFIXES = {
     'Reanalysis': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce',
     'JRA55_FOSIRL': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL',
+    '4DEnVarOcn': 'WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVarOcn',
 }
 REGIONS = {
     'Nino3.4': {'lon_bounds': (190, 240), 'lat_bounds': (-5, 5)},
@@ -191,8 +192,11 @@ def ensure_regional_products(output_root, variables, init_months, sources, regio
                              variable_years=None, baseline_lead=1, distance_tolerance=1.e-6):
     """Build only the compact regional diagnostics required by 5b/5c/5d."""
     _check_mode(mode)
-    if set(sources) != set(SOURCES):
-        raise ValueError(f'Two-reference regional processing requires {SOURCES}')
+    invalid = set(sources) - set(CASE_PREFIXES)
+    if invalid:
+        raise ValueError(
+            f'Unknown drift source(s): {sorted(invalid)}; expected subset of {sorted(CASE_PREFIXES)}'
+        )
     variable_years = {'PRECT': (1980, 2015)} if variable_years is None else variable_years
     root = Path(output_root)
     rows, pending = [], []
@@ -260,9 +264,9 @@ DEFAULT_FIGURE_ROOT = Path('/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag')
 DEFAULT_VARIABLES = ('TREFHT', 'SST', 'PSL', 'PRECT', 'H2OSOI')
 DEFAULT_INIT_MONTHS = (5, 11)
 DEFAULT_SOURCES = ('JRA55_FOSIRL', 'Reanalysis')
-DEFAULT_SOURCE_LABELS = {'JRA55_FOSIRL': 'FOSIRL', 'Reanalysis': 'Reanalysis'}
-DEFAULT_SOURCE_COLORS = {'JRA55_FOSIRL': 'tab:blue', 'Reanalysis': 'tab:orange'}
-DEFAULT_SOURCE_MARKERS = {'JRA55_FOSIRL': 'o', 'Reanalysis': '^'}
+DEFAULT_SOURCE_LABELS = {'JRA55_FOSIRL': 'FOSIRL', 'Reanalysis': 'Reanalysis', '4DEnVarOcn': '4DEnVarOcn'}
+DEFAULT_SOURCE_COLORS = {'JRA55_FOSIRL': 'tab:blue', 'Reanalysis': 'tab:orange', '4DEnVarOcn': 'tab:green'}
+DEFAULT_SOURCE_MARKERS = {'JRA55_FOSIRL': 'o', 'Reanalysis': '^', '4DEnVarOcn': 's'}
 
 DEFAULT_PLOT_REGIONS = {
     'TREFHT': ('Nino3.4', 'North_Atlantic'),

@@ -11,6 +11,7 @@ import numpy as np
 import xarray as xr
 
 VERSION = "initial_shock_rmse_mae_v3"
+LEGACY_VERSION = "initial_shock_rmse_mae_v2"
 NCL_RMSE_RANGES = (0.15, 0.20, 0.25, 0.30, 0.35, 0.40)
 NCL_MAE_RANGES = (0.13, 0.16, 0.19, 0.22, 0.25, 0.28)
 NCL_COLORS = ("white", "orange", "#cd8500", "orangered", "#ff4500", "#cd3700", "#8b2500")
@@ -94,7 +95,7 @@ def compute_legacy_initial_shock_error_index(
         long_name="MAE of global-index anomalies normalized by observed climatological standard deviation",
     )
     result.attrs.update(
-        diagnostic_version=VERSION,
+        diagnostic_version=LEGACY_VERSION,
         min_samples=int(min_samples),
         anomaly_baseline="independent model and observation means over Y and block",
         error_reduction="paired blocks within each initialization; population mean",
@@ -207,7 +208,7 @@ def compute_initial_shock_error_index(
     first_rmse, first_mae, first_count, first_valid = _paired_metrics(
         first_member_error, "lead_month", int(min_samples)
     )
-    rmse, mae, raw_count, raw_valid = _paired_metrics(
+    rmse, mae, _, _ = _paired_metrics(
         raw_error, "lead_month", int(min_samples)
     )
 

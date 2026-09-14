@@ -237,3 +237,17 @@ def test_rmse_mae_force_compute_refreshes_same_cache(archive_inputs):
     forced = error_archive.plan_archive_run(settings, cases, variable)
     assert forced[0]['error_rebuild']
     assert forced[0]['error_path'] == initial[0]['error_path']
+
+
+def test_rmse_threshold_change_reuses_6a_cache_and_rebuilds_only_6b(archive_inputs):
+    settings, cases, variable = archive_inputs
+    initial = error_archive.plan_archive_run(settings, cases, variable)
+    error_archive.compute_archive_plan(initial, settings, variable)
+
+    settings['metric']['monthly_error_min_samples'] = 12
+    changed = error_archive.plan_archive_run(settings, cases, variable)
+
+    assert not changed[0]['rebuild']
+    assert changed[0]['path'] == initial[0]['path']
+    assert changed[0]['error_rebuild']
+    assert changed[0]['error_path'] != initial[0]['error_path']
