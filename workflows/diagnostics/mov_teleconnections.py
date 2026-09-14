@@ -458,6 +458,34 @@ def compute_mov_provenance_fingerprint(
     ).hexdigest()[:16]
 
 
+def mov_teleconnection_cache_path(config: Mapping[str, Any]) -> Path:
+    """Return the stable, human-readable cache path for one 4b product."""
+    selection = config["selection"]
+    mode = str(selection["upstream_mode"]).upper().strip()
+    variable = str(selection["downstream_variable"]).upper().strip()
+    year_start, year_end = (int(year) for year in selection["verification_years"])
+    output_dir = Path(config["paths"].get("output_dir", DEFAULT_OUTPUT_DIR))
+    return output_dir / (
+        f"teleconnection_{mode}_{variable}_verify{year_start}_{year_end}.nc"
+    )
+
+
+def _open_compatible_mov_cache(path: Path, fingerprint: str) -> xr.Dataset | None:
+    """Open *path* only when its schema and provenance match this request."""
+    if not path.is_file():
+        return None
+
+    dataset = xr.open_dataset(path)
+    if (
+        dataset.attrs.get("schema") == "mov_teleconnection_metrics_v1"
+        and dataset.attrs.get("fingerprint") == fingerprint
+    ):
+        return dataset
+
+    dataset.close()
+    return None
+
+
 def ensure_mov_teleconnection_dataset(
     config: Mapping[str, Any],
     inventory: pd.DataFrame | None = None,
@@ -485,16 +513,20 @@ def ensure_mov_teleconnection_dataset(
 
     fingerprint = compute_mov_provenance_fingerprint(config, all_source_paths)
     mode = config["selection"]["upstream_mode"].upper().strip()
-    output_dir = Path(config["paths"].get("output_dir", DEFAULT_OUTPUT_DIR))
-    out_file = output_dir / f"teleconnection_{mode}_{fingerprint}.nc"
+    out_file = mov_teleconnection_cache_path(config)
+    output_dir = out_file.parent
     cache_mode = config["cache"].get("mode", "auto")
 
-    if out_file.is_file() and cache_mode != "rebuild":
-        metrics_ds = xr.open_dataset(out_file)
-        return metrics_ds, out_file, "loaded"
+    if cache_mode != "rebuild":
+        metrics_ds = _open_compatible_mov_cache(out_file, fingerprint)
+        if metrics_ds is not None:
+            return metrics_ds, out_file, "loaded"
 
     if cache_mode == "require":
-        raise FileNotFoundError(f"Required teleconnection cache is unavailable: {out_file}")
+        reason = "incompatible" if out_file.is_file() else "unavailable"
+        raise FileNotFoundError(
+            f"Required teleconnection cache is {reason}: {out_file}"
+        )
 
     manifest, _ = load_modes_manifest(Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT)))
     parts: list[xr.Dataset] = []

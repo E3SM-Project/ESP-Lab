@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import cftime
 import numpy as np
 import pandas as pd
@@ -6,6 +9,168 @@ from dask.base import is_dask_collection
 
 from esp_lab import eli_diagnostics
 from esp_lab.utils.resource_utils import ResourceTracker
+
+
+ELI_NOTEBOOK = Path(__file__).parents[1] / "jupyter" / "8a_refactor_eli_skill_ts.ipynb"
+ELI_DIAGNOSTICS_NOTEBOOK = (
+    Path(__file__).parents[1] / "jupyter" / "8b_refactor_eli_diagnostics.ipynb"
+)
+
+
+def test_eli_notebook_resolves_index_in_model_filename_templates():
+    notebook = json.loads(ELI_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert 'f"E3SMLE{{init_month:02d}}_{INDEX}' in source
+    assert 'f"BSMYLE{{init_month:02d}}_{INDEX}' in source
+    assert '"E3SMLE{init_month:02d}_{INDEX}' not in source
+    assert '"BSMYLE{init_month:02d}_{INDEX}' not in source
+    assert '"cache_mode": "auto"' in source
+    assert "run_process_native_eli.py" in source
+    assert "REPO_ROOT = Path(eli_tools.__file__).resolve().parents[1]" in source
+    assert "str(NATIVE_ELI_SCRIPT)" in source
+    assert "subprocess.run(command, check=True)" in source
+
+
+def test_eli_notebook_uses_explicit_compact_figure_layouts():
+    notebook = json.loads(ELI_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert source.count('"fig_width": 16.0') == 2
+    assert '"fig_height": 12.5' in source
+    assert '"fig_height": 8.5' in source
+    assert 'fig = plt.figure(figsize=(fig_width, fig_height))' in source
+    assert 'row_height_scale' not in source
+    assert source.count('fig.suptitle(') == 2
+    assert 'AnchoredOffsetbox(' in source
+    assert 'child=HPacker(children=metric_columns' in source
+    assert 'annotation_start_y' not in source
+    assert 'seasonal_skill, seasonal_common_target_years' in source
+    assert 'retain_complete_seasonal_leads(' in source
+    assert 'scores.L if month is None else scores.L - plot_cfg["seasonal_lead_offset"]' in source
+    assert 'season_labels_by_month' in source
+    assert 'Seasonal skill by initialization and overall monthly skill' in source
+    assert '"plot_months": [11, 5]' in source
+    assert '"target_leads": {11: [3, 15], 5: [9, 21]}' in source
+    assert 'reference_times = eli_seas_time[reference_model][month].sel(L=lead)' in source
+    assert 'values = eli_seas_dd[model][month].sel(L=lead)' in source
+    assert 'score = seasonal_skill[model][month].sel(L=lead)' in source
+    assert 'nmme_eli_seas_timeseries[month]["values"].sel(L=lead)' in source
+    assert 'label="HadISST2"' in source
+    assert 'NMME_STYLE = {"label": "NMME"' in source
+    assert '"title": f"{INDEX} Seasonal Skill Scores ({START_YEAR}-{END_YEAR})"' in source
+    assert '"title": f"{INDEX} DJF Anomaly Time Series"' in source
+    assert '"legend_ncol": 4' in source
+    assert 'def _reorder_legend_row_major(' in source
+    assert '"legend_facecolor": "#fcfcfc"' in source
+    assert '"legend_edgecolor": "#d0d0d0"' in source
+    assert '"annotation_loc": "lower left"' in source
+    assert '"annotation_bbox": (0.015, 0.035)' in source
+    assert 'loc=plot_cfg["annotation_loc"]' in source
+
+
+def test_eli_diagnostics_reorganized_nmme_helper_is_complete_and_explicit():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert "def _compute_all_available_skill(init_month, config, obs_lookup, rng):" in source
+    assert "return xr.Dataset(" in source
+    assert "_compute_all_available_skill(month, plot_cfg, obs_lookup, rng)" in source
+    assert 'if not config["detrend"]' in source
+    assert 'ELI_CACHE_MODE = "auto"' in source
+    assert '"--year-end", str(END_YEAR)' in source
+    assert 'subprocess.run(command, check=True)' in source
+    assert '"E3SM-4DEnVarOcn": "4DEnVarOcn"' in source
+    assert 'NMME_ELI_BENCHMARK_AVAILABLE = not missing_nmme_benchmark_files' in source
+    assert 'raise FileNotFoundError(\n        "Missing NMME benchmark inputs:' not in source
+
+
+def test_eli_diagnostics_defines_figure_filename_before_first_plot():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    definition = 'def figure_filename(*parts, ext="png"):'
+    first_use = 'figpath = FIGURE_OUTDIR / figure_filename('
+    assert source.count(definition) == 1
+    assert source.index(definition) < source.index(first_use)
+
+
+def test_eli_nino34_seasonal_observations_avoid_short_dask_chunks():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert (
+        'nino34_raw = open_tracked_dataset(NINO34_OBS_FILE, chunks=None)["sst"].load()'
+        in source
+    )
+    assert '.rolling(time=window, center=True, min_periods=window)' in source
+
+
+def test_eli_nino34_figures_do_not_draw_top_explanatory_note():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert '"anomaly_note"' not in source
+    assert '"anomaly_note_y"' not in source
+    assert '"anomaly_note_font_scale"' not in source
+    assert '"figure_title_y": 0.985' in source
+
+
+def test_eli_nino34_figures_use_one_bottom_figure_legend():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert '"legend_loc": "lower center"' in source
+    assert '"legend_bbox": (0.5, 0.015)' in source
+    assert '"legend_ncol": 3' in source
+    assert 'legend_handles = [\n        line_eli,\n        line_nino34,' in source
+    assert 'fig.legend(\n        handles=legend_handles,' in source
+    assert 'ax_eli.legend(' not in source
+    assert '"layout_rect": [0.035, 0.065, 0.965, 0.94]' in source
+
+
+def test_drift_reference_lines_distinguish_eli_and_nino34_sources():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert '"eli_obs_color": "tab:green"' in source
+    assert '"eli_obs_linestyle": "--"' in source
+    assert '"nino34_obs_color": "tab:red"' in source
+    assert '"nino34_obs_linestyle": ":"' in source
+    assert 'color=diagnostic["obs_color"]' in source
+    assert 'linestyle=diagnostic["obs_linestyle"]' in source
+    assert 'color=plot_cfg["obs_color"]' not in source
+
+
+def test_drift_figure_uses_two_row_bottom_legend_without_header_rules():
+    notebook = json.loads(ELI_DIAGNOSTICS_NOTEBOOK.read_text())
+    source = "\n".join(
+        "".join(cell.get("source", [])) for cell in notebook["cells"]
+    )
+
+    assert '"subplot_adjust": {"top": 0.85, "bottom": 0.19' in source
+    assert '"legend_bbox": (0.50, 0.012)' in source
+    assert '"legend_ncol": 4' in source
+    assert 'legend_nrow = (len(legend_elements) + legend_ncol - 1) // legend_ncol' in source
+    assert 'bbox_to_anchor=plot_cfg["legend_bbox"]' in source
+    assert 'col_line = plt.Line2D(' not in source
+    assert 'fig.add_artist(col_line)' not in source
 
 
 def _hindcast(years, missing=None):

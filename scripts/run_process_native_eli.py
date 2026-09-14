@@ -40,7 +40,6 @@ KNOWN_CASES: dict[str, dict[str, str]] = {
         "data_dir": "/global/cfs/cdirs/e3sm/S2S2D/simulation",
         "case_prefix": "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_4DEnVarOcn",
         "cache_tag": "4DEnVarOcn",
-        "year_end": 2011,
     },
 }
 
@@ -172,7 +171,7 @@ def main() -> None:
             display_name=info.get("display_name"),
             init_months=args.init_months,
             year_start=args.year_start,
-            year_end=info.get('year_end', args.year_end),
+            year_end=args.year_end,
             nlead=args.nlead,
             nens=args.e3sm_nens,
             workers=args.workers,

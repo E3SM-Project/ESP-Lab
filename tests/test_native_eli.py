@@ -19,6 +19,11 @@ from esp_lab.diagnostics.native_eli import (
     read_surface_sst_on_cells,
     weighted_mean_skipna_1d,
 )
+from scripts.run_process_native_eli import KNOWN_CASES
+
+
+def test_4denvarocn_cli_preset_does_not_override_requested_end_year():
+    assert "year_end" not in KNOWN_CASES["4DEnVarOcn"]
 
 
 def _create_mock_mesh_file(path: Path, ncells: int = 100) -> Path:
