@@ -103,6 +103,17 @@ def test_north_pacific_eof_maps_use_nonoverlapping_layout():
     assert 'title.replace(" (", "\\n(", 1)' in source
 
 
+def test_regional_eof_contours_transform_before_cartopy_rendering():
+    source = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in json.loads(NOTEBOOK.read_text())["cells"]
+    )
+
+    assert 'transform_first = eof_plot.get(' in source
+    assert '"transform_first", map_projection_name == "north_pacific"' in source
+    assert 'transform_first = teleconnection_plot.get("transform_first", False)' in source
+
+
 def test_notebook_uses_centralized_figure_configuration():
     source = "\n".join(
         "".join(cell.get("source", []))
@@ -111,6 +122,12 @@ def test_notebook_uses_centralized_figure_configuration():
 
     assert "build_figure_setup(selected_mode, include_nmme=include_nmme)" in source
     assert "MODE_FIGURE_PROFILES" in source
+    assert "STIPPLE_STYLE" in source
+    assert "FIGURE_OVERRIDES" in source
+    assert '"stipple_stride"' in source
+    assert '"stipple_size"' in source
+    assert '"stipple_alpha"' in source
+    assert "FIGURE_SETUP[section].update(overrides)" in source
     for legacy_block in (
         "BASE_EOF_PATTERN_SETTINGS",
         "MODE_LAYOUT_CONFIG",

@@ -297,10 +297,26 @@ MODE_FIGURE_PROFILES: dict[str, dict[str, object]] = {
     "SAM": {"layout": "polar", "map": "south_polar"},
     "PSA1": {
         "layout": "polar", "map": "south_polar",
+        "layout_overrides": {
+            "subplot_wspace": 0.50,
+            "subplot_hspace": 0.15,
+        },
+        "eof_overrides": {
+            "polar_longitude_labels_each_panel": True,
+            "polar_latitude_labels_each_panel": True,
+        },
         "projection": {"central_longitude": 0},
     },
     "PSA2": {
         "layout": "polar", "map": "south_polar",
+        "layout_overrides": {
+            "subplot_wspace": 0.50,
+            "subplot_hspace": 0.15,
+        },
+        "eof_overrides": {
+            "polar_longitude_labels_each_panel": True,
+            "polar_latitude_labels_each_panel": True,
+        },
         "projection": {"central_longitude": 0},
     },
     "NAO": {
@@ -315,22 +331,34 @@ MODE_FIGURE_PROFILES: dict[str, dict[str, object]] = {
     },
     "EA": {
         "layout": "atlantic", "map": "atlantic", "eof_style": "atlantic_compact",
+        "layout_overrides": {
+            "figsize_width": 15.5,
+            "figsize_row_height": 2.0,
+            "subplot_wspace": 0.08,
+        },
         "projection": {"central_longitude": -20, "central_latitude": 50,
                        "standard_parallels": (30, 70)},
     },
     "SCA": {
         "layout": "atlantic", "map": "atlantic", "eof_style": "atlantic_compact",
+        "layout_overrides": {
+            "figsize_width": 15.5,
+            "figsize_row_height": 2.0,
+            "subplot_wspace": 0.08,
+        },
         "projection": {"central_longitude": -20, "central_latitude": 50,
                        "standard_parallels": (35, 70)},
     },
     "AMO": {
         "layout": "atlantic", "map": "atlantic", "eof_style": "atlantic_compact",
-        "layout_overrides": {"figsize_width": 11.0, "figsize_row_height": 3.0,
-                             "subplot_wspace": 0.04, "subplot_hspace": 0.18,
+        "layout_overrides": {"figsize_width": 11.0, "figsize_row_height": 2.0,
+                             "subplot_wspace": 0.08, "subplot_hspace": 0.18,
                              "panel_title_y": 1.0, "map_label_scale": 0.80,
-                             "column_header_scale": 0.90, "panel_title_pad": 4},
+                             "panel_title_pad": 4},
         "eof_overrides": {"panel_title_scale": 0.48,
-                          "column_header_x_shift_by_col": {3: -0.012}},
+                          "column_header_x_shift_by_col": {3: -0.012},
+                          "transform_first": True},
+        "teleconnection_overrides": {"transform_first": True},
         "levels": "temperature",
     },
     "PNA": {
@@ -354,6 +382,12 @@ MODE_FIGURE_PROFILES: dict[str, dict[str, object]] = {
     "NPGO": {
         "layout": "north_pacific_temperature", "map": "north_pacific",
         "eof_style": "compact", "levels": "temperature",
+        "layout_overrides": {
+            "figsize_width": 15.5,
+            "figsize_row_height": 2.0,
+            "subplot_wspace": 0.08,
+            "subplot_hspace": 0.22,
+        },
         "projection": {"central_longitude": 180, "central_latitude": 45,
                        "standard_parallels": (20, 60)},
         "eof_overrides": {"panel_title_scale": 0.50, "panel_title_y": 1.04,
@@ -362,7 +396,13 @@ MODE_FIGURE_PROFILES: dict[str, dict[str, object]] = {
     },
     "PDO": {
         "layout": "pacific_temperature", "map": "north_pacific",
-        "levels": "temperature",
+        "eof_style": "compact", "levels": "temperature",
+        "layout_overrides": {
+            "figsize_width": 15.5,
+            "figsize_row_height": 2.0,
+            "subplot_wspace": 0.08,
+            "subplot_hspace": 0.22,
+        },
     },
 }
 
@@ -431,6 +471,7 @@ def _regional_settings(mode: str, *, eof: bool) -> dict[str, object]:
         settings.update(deepcopy(profile.get("eof_overrides", {})))
     else:
         settings.update(deepcopy(SHARED_TELECONNECTION_OVERRIDES))
+        settings.update(deepcopy(profile.get("teleconnection_overrides", {})))
     return settings
 
 

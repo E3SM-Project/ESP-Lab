@@ -59,6 +59,34 @@ def test_mov_provenance_fingerprint():
         assert len(fp1) == 16
 
 
+def test_mov_cache_path_is_descriptive_and_stable(tmp_path):
+    config = {
+        "paths": {"output_dir": str(tmp_path)},
+        "selection": {
+            "upstream_mode": "npo",
+            "downstream_variable": "H2OSOI",
+            "verification_years": [1981, 2011],
+        },
+    }
+
+    assert mov_telecon.mov_teleconnection_cache_path(config) == (
+        tmp_path / "teleconnection_NPO_H2OSOI_verify1981_2011.nc"
+    )
+
+
+def test_open_mov_cache_requires_matching_schema_and_fingerprint(tmp_path):
+    cache = tmp_path / "teleconnection_NPO_H2OSOI_verify1981_2011.nc"
+    xr.Dataset({"value": ("x", [1.0])}, attrs={
+        "schema": "mov_teleconnection_metrics_v1",
+        "fingerprint": "current",
+    }).to_netcdf(cache)
+
+    loaded = mov_telecon._open_compatible_mov_cache(cache, "current")
+    assert loaded is not None
+    loaded.close()
+    assert mov_telecon._open_compatible_mov_cache(cache, "stale") is None
+
+
 def test_build_inventory_reports_missing_upstream_index(tmp_path):
     assert mov_telecon.E3SM_CASES["E3SM-4DEnVarOcn"]["supports_land"] is True
 
