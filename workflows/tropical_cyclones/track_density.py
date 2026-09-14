@@ -402,3 +402,28 @@ def read_stitch_nodes_tracks(track_files: list[str | Path], workflows_dir=None) 
         return pd.DataFrame(columns=[
             "case", "member", "storm_id", "node", "lon", "lat", "slp", "wind", "zs", "time", "init_time"
         ])
+
+
+def _read_single_stitch_nodes_track(path: str | Path) -> pd.DataFrame:
+    """Worker-safe wrapper for parsing one StitchNodes file."""
+    return read_stitch_nodes_tracks([path])
+
+
+def read_stitch_nodes_tracks_parallel(
+    track_files: list[str | Path], *, client=None
+) -> pd.DataFrame:
+    """Parse track files concurrently when a Dask client is available.
+
+    Results are gathered as ordinary pandas frames so downstream plotting and
+    grouping retain exactly the serial implementation's behavior. Missing or
+    malformed files follow :func:`read_stitch_nodes_tracks` semantics.
+    """
+    paths = [Path(path) for path in track_files]
+    if client is None or len(paths) < 2:
+        return read_stitch_nodes_tracks(paths)
+
+    futures = client.map(_read_single_stitch_nodes_track, paths, pure=False)
+    frames = [frame for frame in client.gather(futures) if not frame.empty]
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+    return read_stitch_nodes_tracks([])

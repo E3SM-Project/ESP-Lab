@@ -79,6 +79,18 @@ def test_auto_builds_each_season_for_exact_period(tmp_path, monkeypatch):
             f"start\n0 150 10 99000 20 0 1980 {point_month} 1 0\n"
         )
 
+    class InlineClient:
+        def __init__(self):
+            self.map_calls = 0
+
+        def map(self, function, *iterables, **kwargs):
+            self.map_calls += 1
+            return [function(*arguments) for arguments in zip(*iterables)]
+
+        def gather(self, futures):
+            return futures
+
+    client = InlineClient()
     output, status = ensure_experiment_diagnostic(
         case_key="experiment", spec=SPEC, repo_root=tmp_path,
         track_root=track_root, diag_root=tmp_path / "diagnostics",
@@ -93,9 +105,11 @@ def test_auto_builds_each_season_for_exact_period(tmp_path, monkeypatch):
         },
         track_config=TrackDensityConfig(method="box", box_grid_size=30),
         track_settings={}, ibtracs_file=None, cache_mode="auto",
+        dask_client=client,
     )
 
     assert status == "built"
+    assert client.map_calls == 1
     with xr.open_dataset(output) as dataset:
         assert dataset.attrs["years"] == "1980-1980"
         assert dataset.sample_count.sel(lead=1, year=1980).values.tolist() == [1, 1]
