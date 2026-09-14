@@ -77,6 +77,32 @@ def _read_track(path, case, member):
     return pd.DataFrame(rows)
 
 
+def _read_track_filtered(item, point_wind_min):
+    """Read one metadata item and apply the optional point filter on-worker."""
+    case, member, path = item
+    frame = _read_track(path, case, member)
+    if point_wind_min is not None and not frame.empty:
+        frame = frame[frame.wind >= point_wind_min]
+    return frame
+
+
+def _read_track_frames(metadata, point_wind_min=None, dask_client=None):
+    """Read track files serially or through a supplied distributed client."""
+    if not metadata:
+        return []
+    if dask_client is None or len(metadata) < 2:
+        frames = [_read_track_filtered(item, point_wind_min) for item in metadata]
+    else:
+        futures = dask_client.map(
+            _read_track_filtered,
+            metadata,
+            [point_wind_min] * len(metadata),
+            pure=False,
+        )
+        frames = dask_client.gather(futures)
+    return [frame for frame in frames if not frame.empty]
+
+
 def _add_season_and_lead(points, leads, years):
     if points.empty:
         return pd.DataFrame(columns=list(points.columns) + ["season", "season_year", "lead"])
@@ -209,7 +235,7 @@ def ensure_experiment_diagnostic(
     *, case_key, spec, repo_root, track_root, diag_root, year_start, year_end,
     init_months, members, parset, leads, seasons, basin_defs, track_config,
     track_settings, ibtracs_file, obs_wind_min=35.0, obs_time_step_hours=6,
-    point_wind_min=None, input_mode="auto", cache_mode="auto",
+    point_wind_min=None, input_mode="auto", cache_mode="auto", dask_client=None,
 ):
     """Load or build one experiment's exact-period diagnostic cache."""
     if cache_mode not in VALID_CACHE_MODES:
@@ -243,7 +269,6 @@ def ensure_experiment_diagnostic(
         dims=("season", "lead", "year"),
         coords={"season": seasons, "lead": leads, "year": years}, name="sample_count",
     )
-    frames = []
     for case, member, path in metadata:
         init = _case_init_time(case)
         for lead in leads:
@@ -251,11 +276,9 @@ def ensure_experiment_diagnostic(
             season = "NH_JJASON" if start.month == 6 else "SH_DJFMAM" if start.month == 12 else None
             if season and start.year in years:
                 samples.loc[dict(season=season, lead=lead, year=start.year)] += 1
-        frame = _read_track(path, case, member)
-        if point_wind_min is not None and not frame.empty:
-            frame = frame[frame.wind >= point_wind_min]
-        if not frame.empty:
-            frames.append(frame)
+    frames = _read_track_frames(
+        metadata, point_wind_min=point_wind_min, dask_client=dask_client
+    )
     tracks = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     points = _add_season_and_lead(tracks, leads, years)
     if track_config.method == "box":

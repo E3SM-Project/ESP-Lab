@@ -464,6 +464,31 @@ def test_provenance_fingerprint():
         assert len(fp1) == 16
 
 
+def test_teleconnection_cache_path_matches_provenance(tmp_path):
+    sources = []
+    for name in ("index_fc.nc", "index_obs.nc", "field_fc.nc", "field_obs.nc"):
+        path = tmp_path / name
+        path.write_text(name)
+        sources.append(path)
+    inventory = pd.DataFrame([{
+        "status": "ready",
+        "index_forecast": str(sources[0]),
+        "index_observed": str(sources[1]),
+        "field_forecast": str(sources[2]),
+        "field_observed": str(sources[3]),
+    }])
+    config = {
+        "selection": {"upstream_index": "Nino3.4"},
+        "analysis": {"detrend": True},
+        "paths": {"output_dir": str(tmp_path / "cache")},
+    }
+
+    expected_fingerprint = telecon.compute_provenance_fingerprint(config, sources)
+    assert telecon.teleconnection_cache_path(config, inventory) == (
+        tmp_path / "cache" / f"teleconnection_Nino34_{expected_fingerprint}.nc"
+    )
+
+
 def test_standardize_spatial_grid_and_assemble():
     target_lat = np.linspace(-90.0, 90.0, 181)
     target_lon = np.linspace(0.0, 359.0, 360)
