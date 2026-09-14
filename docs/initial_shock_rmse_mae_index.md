@@ -28,10 +28,11 @@ Their difference is the standardized forecast error
 e_t=m'_t-o'_t=\frac{m_t-o_t}{\sigma_{\mathrm{obs},month(t)}}.
 \]
 
-The shared mean therefore cancels from the paired error, while the
-month-specific observed scale removes the seasonal cycle and puts errors in
-comparable observed-variability units. Unlike independently centered model and
-observation climatologies, this formulation retains systematic model error.
+The shared observed mean removes the reference seasonal cycle from each anomaly,
+and the month-specific observed scale puts anomalies in comparable variability
+units. The mean cancels from their paired difference, so systematic—including
+season-dependent—model error is retained. Independently centering the model
+would instead remove part of that error.
 
 ## Primary and seasonal metrics
 

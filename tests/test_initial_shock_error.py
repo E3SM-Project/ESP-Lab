@@ -66,6 +66,7 @@ def test_ncl_independent_full_cohort_anomalies_remain_explicitly_legacy():
     np.testing.assert_allclose(result.normalized_rmse, np.sqrt(1.25) / np.sqrt(2.))
     np.testing.assert_allclose(result.normalized_mae, 1. / np.sqrt(2.))
     assert (result.paired_sample_count == 2).all()
+    assert result.attrs["diagnostic_version"] == "initial_shock_rmse_mae_v2"
 
 
 def test_separate_constant_offsets_do_not_change_metrics():
