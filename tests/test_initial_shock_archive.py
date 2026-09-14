@@ -87,6 +87,30 @@ def test_incomplete_archive_stops_before_compute(archive_inputs,monkeypatch):
         archive.plan_archive_run(settings,cases,variable)
 
 
+@pytest.mark.parametrize(
+    ('setting_path', 'value', 'message'),
+    [
+        (('run', 'years'), [1981, 1980], 'ordered integer endpoint years'),
+        (('run', 'init_months'), [5.0], 'integer initialization months'),
+        (('run', 'nlead'), 0, 'nlead must be positive'),
+        (('metric', 'start_lead'), -1, 'Metric window exceeds forecast length'),
+        (('metric', 'block_months'), 0, 'at least two complete blocks'),
+    ],
+)
+def test_invalid_plan_configuration_stops_before_archive_access(
+    archive_inputs, monkeypatch, setting_path, value, message,
+):
+    settings, cases, variable = archive_inputs
+    settings[setting_path[0]][setting_path[1]] = value
+    monkeypatch.setattr(
+        archive.obs_access,
+        'find_obs_file',
+        lambda **kwargs: pytest.fail('invalid configuration reached archive access'),
+    )
+    with pytest.raises(ValueError, match=message):
+        archive.plan_archive_run(settings, cases, variable)
+
+
 def test_sources_changing_after_plan_are_rejected(archive_inputs):
     settings,cases,variable=archive_inputs
     plan=archive.plan_archive_run(settings,cases,variable)

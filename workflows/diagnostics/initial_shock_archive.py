@@ -62,10 +62,23 @@ def plan_archive_run(settings, cases, variable):
     cohort. Benchmark files are monthly, never seasonal or drift-corrected.
     Returns a serializable plan, including cache decisions and exact sources.
     """
-    years = list(range(settings['run']['years'][0], settings['run']['years'][1] + 1))
+    year_bounds = settings['run']['years']
+    if (
+        not isinstance(year_bounds, (list, tuple))
+        or len(year_bounds) != 2
+        or any(not isinstance(value, (int, np.integer)) for value in year_bounds)
+        or year_bounds[0] > year_bounds[1]
+    ):
+        raise ValueError('run.years must contain two ordered integer endpoint years')
+    years = list(range(int(year_bounds[0]), int(year_bounds[1]) + 1))
     months = list(settings['run']['init_months'])
-    if not years or not months or len(set(months)) != len(months) or any(m not in range(1, 13) for m in months):
-        raise ValueError('Specify nonempty years and unique initialization months in 1..12')
+    if (
+        not months
+        or any(not isinstance(month, (int, np.integer)) for month in months)
+        or len(set(months)) != len(months)
+        or any(month not in range(1, 13) for month in months)
+    ):
+        raise ValueError('Specify unique integer initialization months in 1..12')
     if not cases and not settings['smyle']['include']:
         raise ValueError('Select at least one model')
     mode = settings['cache']['mode']
@@ -78,9 +91,16 @@ def plan_archive_run(settings, cases, variable):
         raise ValueError("cache.force_compute cannot be used with cache.mode='require'")
     nlead = settings['run']['nlead']
     metric = settings['metric']
-    if metric['start_lead'] + metric['window_months'] > nlead:
+    start_lead = metric['start_lead']
+    window_months = metric['window_months']
+    block_months = metric['block_months']
+    if any(not isinstance(value, (int, np.integer)) for value in (nlead, start_lead, window_months, block_months)):
+        raise ValueError('run.nlead and metric window settings must be integers')
+    if nlead < 1:
+        raise ValueError('run.nlead must be positive')
+    if start_lead < 0 or start_lead + window_months > nlead:
         raise ValueError('Metric window exceeds forecast length')
-    if metric['window_months'] % metric['block_months'] or metric['window_months'] < 2 * metric['block_months']:
+    if block_months < 1 or window_months < 2 * block_months or window_months % block_months:
         raise ValueError('Metric window must contain at least two complete blocks')
     obs_path = obs_access.find_obs_file(
         obs_dir=settings['obs']['data_dir'], product=variable['obs_product'],
