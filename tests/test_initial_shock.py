@@ -58,6 +58,105 @@ def test_normalized_lead_year_change_uses_observed_climatology():
     np.testing.assert_allclose(result.signed_normalized_change, np.sqrt(2))
     np.testing.assert_allclose(result.absolute_normalized_change, np.sqrt(2))
     np.testing.assert_allclose(result.excess_normalized_change, 1 / np.sqrt(2))
+    assert result.seasonal_signed_normalized_change.dims == ("Y", "season")
+    np.testing.assert_allclose(result.seasonal_observation_climatology_std, np.sqrt(2))
+    np.testing.assert_allclose(result.seasonal_model_year_change, 2)
+    np.testing.assert_allclose(result.seasonal_observation_year_change, 1)
+    np.testing.assert_allclose(result.seasonal_signed_normalized_change, np.sqrt(2))
+    np.testing.assert_allclose(result.seasonal_excess_normalized_change, 1 / np.sqrt(2))
+
+
+def test_seasonal_change_pairs_matching_seasons_not_adjacent_seasons():
+    seasonal_cycle = np.repeat([10.0, 20.0, 30.0, 40.0], 3)
+    one_forecast = np.concatenate([seasonal_cycle, seasonal_cycle + 1])
+    values = np.stack([one_forecast, one_forecast + 2])
+    values = np.broadcast_to(values[:, :, None, None], (2, 24, 2, 2)).copy()
+    obs = xr.DataArray(
+        values, dims=("Y", "L", "lat", "lon"),
+        coords={"Y": [1981, 1986], "L": np.arange(24),
+                "lat": [-30.0, 30.0], "lon": [0.0, 180.0]},
+        attrs={"units": "mm/day"},
+    )
+    starts = ["1981-05-01", "1986-05-01"]
+    times = np.stack([
+        np.asarray(xr.date_range(start, periods=24, freq="MS")) for start in starts
+    ])
+    obs = obs.assign_coords(verification_time=(("Y", "L"), times))
+    model = (obs + 2).assign_attrs(units=obs.attrs["units"])
+
+    result = compute_initial_shock_index(
+        model, obs, window_months=24, climatology_years=(1981, 1986),
+    )
+
+    np.testing.assert_allclose(result.seasonal_model_year_change, 1)
+    np.testing.assert_allclose(result.seasonal_observation_year_change, 1)
+    np.testing.assert_allclose(result.seasonal_observation_climatology_std, np.sqrt(2))
+    np.testing.assert_allclose(result.seasonal_signed_normalized_change, 1 / np.sqrt(2))
+    np.testing.assert_allclose(result.seasonal_excess_normalized_change, 0, atol=1e-14)
+    np.testing.assert_allclose(result.monthly_observation_climatology_std, np.sqrt(2))
+    np.testing.assert_allclose(result.monthly_standardized_error, np.sqrt(2))
+    np.testing.assert_allclose(
+        result.monthly_model_normalized_anomaly
+        - result.monthly_observation_normalized_anomaly,
+        result.monthly_standardized_error,
+    )
+    np.testing.assert_array_equal(
+        result.season_label, ["May-Jul", "Aug-Oct", "Nov-Jan", "Feb-Apr"],
+    )
+
+
+def test_shared_reference_monthly_climatology_applies_to_member_mean_and_observation():
+    reference_time = xr.date_range("1981-01-01", periods=36, freq="MS")
+    reference_values = np.array([
+        stamp.month * 10.0 + (stamp.year - 1981) * 2.0 for stamp in reference_time
+    ])
+    reference_values = np.broadcast_to(
+        reference_values[:, None, None], (36, 2, 2)
+    ).copy()
+    reference = xr.DataArray(
+        reference_values, dims=("time", "lat", "lon"),
+        coords={"time": reference_time, "lat": [-30.0, 30.0], "lon": [0.0, 180.0]},
+        attrs={"units": "mm/day"},
+    )
+    starts = ["1990-05-01", "1991-05-01"]
+    verification_time = np.stack([
+        np.asarray(xr.date_range(start, periods=24, freq="MS")) for start in starts
+    ])
+    observation_values = np.stack([
+        np.asarray(xr.DataArray(row, dims="time").dt.month) * 10.0 + 2.0
+        for row in verification_time
+    ])
+    observation_values = np.broadcast_to(
+        observation_values[:, :, None, None], (2, 24, 2, 2)
+    ).copy()
+    observation = xr.DataArray(
+        observation_values, dims=("Y", "L", "lat", "lon"),
+        coords={"Y": [1990, 1991], "L": np.arange(24),
+                "lat": [-30.0, 30.0], "lon": [0.0, 180.0],
+                "verification_time": (("Y", "L"), verification_time)},
+        attrs={"units": "mm/day"},
+    )
+    model = xr.concat(
+        [observation + 4.0, observation], dim=xr.IndexVariable("M", ["r1", "r2"]),
+    ).assign_attrs(units="mm/day")
+
+    result = compute_initial_shock_index(
+        model, observation, reference_observation=reference,
+        window_months=24, climatology_years=(1981, 1983),
+    )
+
+    np.testing.assert_allclose(result.monthly_observation_climatology_std, 2)
+    np.testing.assert_allclose(
+        result.monthly_observation_normalized_anomaly, 0, atol=1e-14
+    )
+    np.testing.assert_allclose(
+        result.monthly_first_member_normalized_anomaly, 2, atol=1e-14
+    )
+    np.testing.assert_allclose(result.monthly_model_normalized_anomaly, 1, atol=1e-14)
+    assert result.attrs["monthly_anomaly_climatology"] == (
+        "shared reference observation by calendar month"
+    )
+    assert result.attrs["first_ensemble_member"] == "r1"
 
 
 def test_missing_month_invalidates_whole_annual_block():
@@ -181,7 +280,11 @@ def test_plot_can_compose_multiple_panels():
 
 
 @pytest.mark.parametrize(
-    "variable", ["signed_normalized_change", "absolute_normalized_change", "excess_normalized_change"],
+    "variable", [
+        "signed_normalized_change", "absolute_normalized_change", "excess_normalized_change",
+        "seasonal_signed_normalized_change", "seasonal_absolute_normalized_change",
+        "seasonal_excess_normalized_change",
+    ],
 )
 def test_normalized_change_plot(variable):
     import matplotlib.pyplot as plt
