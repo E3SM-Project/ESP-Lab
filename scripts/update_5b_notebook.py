@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-NOTEBOOK_PATH = Path("/global/homes/z/zhan391/code/ESP-Lab/jupyter/8b_refactor_eli_diagnostics.ipynb")
+NOTEBOOK_PATH = Path("/global/homes/z/zhan391/code/ESP-Lab/jupyter/5b_refactor_eli_diagnostics.ipynb")
 
 with open(NOTEBOOK_PATH, "r", encoding="utf-8") as f:
     nb = json.load(f)
@@ -848,5 +848,5 @@ nb["cells"][18]["source"] = [line + "\n" for line in cell18_source.split("\n")][
 with open(NOTEBOOK_PATH, "w", encoding="utf-8") as f:
     json.dump(nb, f, indent=1, ensure_ascii=False)
 
-print("Successfully updated 8b_refactor_eli_diagnostics.ipynb (Cells 5, 10, 15, 18)!")
+print("Successfully updated 5b_refactor_eli_diagnostics.ipynb (Cells 5, 10, 15, 18)!")
 

@@ -11,9 +11,9 @@ from esp_lab import eli_diagnostics
 from esp_lab.utils.resource_utils import ResourceTracker
 
 
-ELI_NOTEBOOK = Path(__file__).parents[1] / "jupyter" / "8a_refactor_eli_skill_ts.ipynb"
+ELI_NOTEBOOK = Path(__file__).parents[1] / "jupyter" / "5a_refactor_eli_skill_ts.ipynb"
 ELI_DIAGNOSTICS_NOTEBOOK = (
-    Path(__file__).parents[1] / "jupyter" / "8b_refactor_eli_diagnostics.ipynb"
+    Path(__file__).parents[1] / "jupyter" / "5b_refactor_eli_diagnostics.ipynb"
 )
 
 
