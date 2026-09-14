@@ -1,17 +1,11 @@
 # Workflow package layout
 
-The `workflows` package contains orchestration code. Reusable calculations and
-I/O primitives belong in `esp_lab`.
+The `workflows` package contains high-level orchestration modules directly supporting the `jupyter/` analysis suite (0 through 7). Reusable calculations and data access primitives belong in `esp_lab`.
 
-| Package | Purpose |
-|---|---|
-| `diagnostics` | Daily/monthly drift, initial-condition, physical-consistency, and integrated diagnostic pipelines |
-| `e3sm_analysis` | E3SM diagnostics and time-series comparisons |
-| `leadtime_skill` | Lead-time skill and RMSE comparison helpers |
-| `modes_of_variability` | Modes-of-variability processing support |
-| `modes_of_variability` | Modes-of-variability processing support |
+| Package | Supported Notebooks | Purpose |
+|---|---|---|
+| `leadtime_skill` | `2b` | Lead-time RMSE comparison and multi-model metrics |
+| `modes_of_variability` | `4a`, `4b` | Modes-of-variability processing, EOF projection, and teleconnection analysis |
+| `diagnostics` | `3b`, `4b`, `5c`, `6a`, `6b` | Teleconnections (`sst_teleconnections`, `mov_teleconnections`, `teleconnection_inputs`) and initial-shock archive runners |
 
-Each workflow package should keep configuration, discovery, preprocessing,
-diagnostics, plotting, and its command-line runner together when those layers
-are needed. Generated data, figures, notebook checkpoints, and Python bytecode
-do not belong under this directory.
+Each workflow package maintains configuration, discovery, preprocessing, diagnostics, and plotting together. Generated data, figures, and notebook checkpoints do not belong under this directory.
