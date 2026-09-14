@@ -158,18 +158,17 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     }:
         return "MOV"
     if (
-        metric_lower.startswith("leadtime_acc")
-        or "_acc" in stem
-        or stem.startswith(("fig_1a_", "fig_1b_"))
+        stem.startswith(("fig_1a_", "fig_1b_"))
+        or metric_lower.startswith("leadtime_acc")
     ):
         return "LEAD_ACC"
     if metric_lower.startswith("leadtime_drift") or "_drift" in stem:
         return "LEAD_DRIFT"
     if (
-        metric_lower.startswith("leadtime_rmse")
+        stem.startswith(("fig_2a_", "fig_2b_"))
+        or metric_lower.startswith("leadtime_rmse")
         or metric_lower.startswith("rmse_compare")
         or "_rmse" in stem
-        or stem.startswith(("fig_2a_", "fig_2b_"))
     ):
         return "LEAD_RMSE"
     return "SST_INDEX"
