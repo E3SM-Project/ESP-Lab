@@ -1,58 +1,68 @@
-# Initial-shock anomaly RMSE and MAE
+# Monthly standardized forecast-error RMSE and MAE
 
-Open [`jupyter/6b_initial_shock_rmse_mae_index.ipynb`](../jupyter/6b_initial_shock_rmse_mae_index.ipynb).
+Open [`jupyter/6b_refactor_shock_index.ipynb`](../jupyter/6b_refactor_shock_index.ipynb).
 
-This workflow applies the metrics from
-[`temp/Compute_RMSE_With_MAE_Index_share.ncl`](../temp/Compute_RMSE_With_MAE_Index_share.ncl)
-to the E3SM and CESM-SMYLE monthly archives. It shares archive discovery, strict
-ensemble checks, verification-time validation, unit conversion, conservative
-regridding, area weighting, and compact global-index caches with the `6a` workflow.
+This workflow is the error-metric companion to
+[`6a_refactor_shock_ts.ipynb`](../jupyter/6a_refactor_shock_ts.ipynb). It reuses
+6a's exact-period caches, archive discovery, strict ensemble checks,
+verification-time validation, unit conversion, conservative regridding, area
+weighting, and global monthly indices.
 
-For each model case and initialization month it:
+## Shared observed climatology
 
-1. averages ensemble members, requiring every configured member;
-2. forms unweighted, complete monthly blocks;
-3. computes area-weighted global model and observation indices;
-4. subtracts the model's mean over the full requested `Y × block` cohort from
-   the model index and independently subtracts the observation cohort mean;
-5. computes RMSE and MAE over paired blocks for every initialization;
-6. normalizes both errors by the sample standard deviation of observed
-   first-block annual means across the configured climatology years.
-
-For anomalies \(m'_i\) and \(o'_i\), the metrics are
+One reference-observation climatology is calculated by calendar month over the
+configured climatology years. The same monthly mean and standard deviation are
+used for every case, initialization month, ensemble member, and verification
+lead:
 
 \[
-\operatorname{RMSE}=\sqrt{\frac{1}{n}\sum_i(m'_i-o'_i)^2},\qquad
-\operatorname{MAE}=\frac{1}{n}\sum_i|m'_i-o'_i|.
+m'_t=\frac{m_t-C_{\mathrm{obs},month(t)}}
+           {\sigma_{\mathrm{obs},month(t)}},\qquad
+o'_t=\frac{o_t-C_{\mathrm{obs},month(t)}}
+           {\sigma_{\mathrm{obs},month(t)}}.
 \]
 
-The primary plotted quantities are
+Their difference is the standardized forecast error
 
 \[
-\operatorname{NRMSE}=\frac{\operatorname{RMSE}}{\sigma_{\mathrm{obs,clim}}},
-\qquad
-\operatorname{NMAE}=\frac{\operatorname{MAE}}{\sigma_{\mathrm{obs,clim}}}.
+e_t=m'_t-o'_t=\frac{m_t-o_t}{\sigma_{\mathrm{obs},month(t)}}.
 \]
 
-This uses the same stable observed annual-mean variability scale as the revised
-`6a` diagnostic. Raw RMSE and MAE remain in the output tables for continuity
-with the NCL formulation.
+The shared mean therefore cancels from the paired error, while the
+month-specific observed scale removes the seasonal cycle and puts errors in
+comparable observed-variability units. Unlike independently centered model and
+observation climatologies, this formulation retains systematic model error.
 
-The separate full-cohort baselines are essential: raw-temperature errors and
-window-centered errors are different metrics. The NCL script uses 60 months and
-five annual values per window. With the current 24-month archive configuration,
-the notebook applies the same definitions to two consecutive 12-month blocks.
-May and November cohorts are processed separately.
+## Primary and seasonal metrics
 
-The supplementary raw TREFHT thresholds preserve the NCL values:
+For each initialization, the primary metrics reduce the 24 monthly errors:
 
-- RMSE: 0.15, 0.20, 0.25, 0.30, 0.35, and 0.40 °C
-- MAE: 0.13, 0.16, 0.19, 0.22, 0.25, and 0.28 °C
+\[
+\operatorname{NRMSE}=\sqrt{\frac{1}{n}\sum_t e_t^2},\qquad
+\operatorname{NMAE}=\frac{1}{n}\sum_t |e_t|.
+\]
 
-The notebook's primary normalized-error heatmap boundaries are configured
-explicitly in `ERROR_HEATMAP_LEVELS`; they do not affect cached numerical
-results. May and November are presented as separate columns in one figure, with
-NRMSE and NMAE as rows. Every derived cache records its source block-index
-identity, algorithm version, settings, and source provenance. Set
-`cache.force_compute=True` to refresh compatible caches without changing their
-paths.
+Raw RMSE and MAE are also calculated from \(m_t-o_t\) and retain the physical
+units of the field. The same normalized calculations are stored for the first
+ensemble member and the ensemble mean. Seasonal metrics retain forecast lead
+year and verification season and reduce the three monthly errors belonging to
+each season.
+
+The primary figure compares first-member and ensemble-mean NRMSE, with May and
+November initialization cohorts in separate rows. Supplementary figures show
+ensemble-mean seasonal NRMSE for each forecast lead year. NMAE remains in the
+tables and caches as a robustness measure without duplicating the primary
+heatmap.
+
+## Cache behavior and legacy compatibility
+
+Set the notebook's top-level `FORCE_COMPUTE=True` to rebuild the selected
+exact-period 6a and 6b caches. With the default `False`, compatible products are
+reused and only missing or stale products are computed. Table and figure names
+include both initialization and climatology periods.
+
+The former independently centered annual-block calculation is available as
+`compute_legacy_initial_shock_error_index` for explicit comparisons with
+[`temp/Compute_RMSE_With_MAE_Index_share.ncl`](../temp/Compute_RMSE_With_MAE_Index_share.ncl).
+It is not the default 6b metric because a 24-month forecast supplies only two
+annual-block samples and hides seasonal error evolution.

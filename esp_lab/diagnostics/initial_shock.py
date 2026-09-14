@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import xarray as xr
 
-VERSION = "initial_shock_std_v3"
+VERSION = "initial_shock_std_v4"
 
 
 def align_observation_months(observation, verification_time, *, time_dim="time"):

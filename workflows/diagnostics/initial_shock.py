@@ -71,7 +71,11 @@ def run_initial_shock(config):
                             "monthly_model_normalized_anomaly",
                             "monthly_first_member_normalized_anomaly",
                             "monthly_observation_normalized_anomaly"}
-                if candidate.attrs.get("identity_sha256") == digest and required <= set(candidate):
+                if (
+                    candidate.attrs.get("identity_sha256") == digest
+                    and required <= set(candidate)
+                    and "monthly_verification_time" in candidate.coords
+                ):
                     result = candidate
             except (OSError, ValueError):
                 pass
