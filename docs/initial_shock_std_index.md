@@ -6,7 +6,7 @@
 
 ## Archive-backed driver notebook
 
-Open [`jupyter/6a_initial_shock_std_index.ipynb`](../jupyter/6a_initial_shock_std_index.ipynb).
+Open [`jupyter/6a_refactor_shock_ts.ipynb`](../jupyter/6a_refactor_shock_ts.ipynb).
 It follows the `1a_refactor` workflow: centralized field/case settings, full source
 inventory, optional Dask cluster, E3SM monthly archive loading, CESM-SMYLE monthly
 benchmarks, observation loading and common-grid regridding, compact cached metrics,
@@ -25,6 +25,29 @@ already exist; its explicit input contract also describes what the archive bridg
 prepares internally.
 
 ## Definition and interpretation
+
+The primary 24-month diagnostic uses eight consecutive three-month means and
+pairs matching seasons twelve months apart. For season `s`, it calculates
+
+`seasonal_signed_normalized_change = (M_year2,s - M_year1,s) / sigma_obs,s`
+
+and the corresponding absolute and model-minus-observation changes. Here
+`sigma_obs,s` is the sample standard deviation across initialization years of
+the observed lead-year-1 mean for that same season. This season-specific
+normalization prevents adjacent-season climatology from being interpreted as
+forecast adjustment. For May starts the seasons are May-Jul, Aug-Oct, Nov-Jan,
+and Feb-Apr; for November starts they are Nov-Jan, Feb-Apr, May-Jul, and Aug-Oct.
+
+The annual normalized changes remain in the cache and CSV for continuity, but
+the seasonal heatmap and model-versus-observation scatter are the primary plots.
+The evolution figure uses a single reference-observation climatology over the
+selected climatology years. Its mean and standard deviation are calculated
+separately for each calendar month and shared by every model, member, and
+initialization cohort. It plots both `(M_month - mu_obs,month) / sigma_obs,month`
+and `(O_month - mu_obs,month) / sigma_obs,month`, removing the observed seasonal
+cycle on a common scale. Separate May and November figures put the first ensemble
+member and ensemble mean in two columns, with cases in rows and each 24-month
+initialization shown on calendar verification time.
 
 For each initialization, the NCL script uses 60 represented months, averages
 members first, computes five unweighted annual means at each grid cell, takes
@@ -97,11 +120,11 @@ fig = plot_std_ratio(metrics)
 **Current 24-month S2D forecasts cannot reproduce the NCL five-year statistic.**
 The default call rejects them. Setting `window_months=24, block_months=12`
 computes a two-block annual-scale ratio with only two temporal samples. Treat
-this as exploratory. May-start blocks are May–April, not calendar years.
-Alternatively, `window_months=24, block_months=3` gives eight seasonal blocks;
-this is a different metric and includes seasonal-cycle variability. Neither
-should be labeled the original five-year index. Keep an explicit averaging
-choice and compare like windows across models.
+this legacy ratio as exploratory. May-start blocks are May–April, not calendar
+years. The seasonal diagnostic is calculated independently of `block_months`:
+it compares matching three-month seasons across the two lead years rather than
+adjacent seasonal blocks. Neither 24-month metric should be labeled the original
+five-year index.
 
 ## Separate cached execution
 

@@ -18,7 +18,7 @@ from esp_lab.diagnostics.initial_shock import VERSION, align_observation_months,
 from esp_lab.paths import diagnostic_dir
 from esp_lab.utils.netcdf_utils import atomic_to_netcdf, load_netcdf
 
-ARCHIVE_VERSION = 'initial_shock_archive_v2'
+ARCHIVE_VERSION = 'initial_shock_archive_v3'
 
 
 def _scientific_code_digest():
@@ -49,7 +49,17 @@ def _cache_valid(path, digest):
             required = {'std_ratio', 'model_index', 'observation_index', 'paired_sample_count',
                         'model_area_fraction', 'observation_area_fraction', 'block_start_time', 'block_end_time',
                         'signed_normalized_change', 'absolute_normalized_change',
-                        'observation_climatology_std', 'observation_climatology_sample_count'}
+                        'observation_climatology_std', 'observation_climatology_sample_count',
+                        'seasonal_model_year_change', 'seasonal_observation_year_change',
+                        'seasonal_observation_climatology_std',
+                        'seasonal_signed_normalized_change',
+                        'seasonal_absolute_normalized_change',
+                        'monthly_model_index', 'monthly_first_member_index',
+                        'monthly_observation_index',
+                        'monthly_observation_climatology_std',
+                        'monthly_model_normalized_anomaly',
+                        'monthly_first_member_normalized_anomaly',
+                        'monthly_observation_normalized_anomaly'}
             return ds.attrs.get('identity_sha256') == digest and required <= set(ds.variables)
     except (OSError, ValueError):
         return False
@@ -102,6 +112,8 @@ def plan_archive_run(settings, cases, variable):
         raise ValueError('Metric window exceeds forecast length')
     if block_months < 1 or window_months < 2 * block_months or window_months % block_months:
         raise ValueError('Metric window must contain at least two complete blocks')
+    if window_months < 24:
+        raise ValueError('Metric window must include 24 months for same-season lead-year changes')
     obs_path = obs_access.find_obs_file(
         obs_dir=settings['obs']['data_dir'], product=variable['obs_product'],
         field=variable['obs_variable'], filename=variable.get('obs_filename'),
@@ -227,7 +239,10 @@ def compute_archive_plan(plan, settings, variable):
                 obs = _remap(obs_ds, obs_name, target, settings['regrid']) * variable['obs_scale'] + variable['obs_offset']
                 model.attrs['units'] = obs.attrs['units'] = variable['units']
                 aligned = align_observation_months(obs, valid_time)
-                result = compute_initial_shock_index(model, aligned, area=target.area,
+                result = compute_initial_shock_index(
+                                                     model, aligned,
+                                                     reference_observation=obs,
+                                                     area=target.area,
                                                      **settings['metric']).compute()
                 if _inventory(task['model_paths'] + [task['obs_path']]) != task['inventory']:
                     raise RuntimeError('Source files changed during computation; result not cached')

@@ -132,7 +132,7 @@ def test_sources_changing_after_plan_are_rejected(archive_inputs):
 
 def test_notebook_cells_smoke_execution(archive_inputs,tmp_path):
     settings,cases,variable=archive_inputs
-    notebook=Path(__file__).parents[1]/'jupyter/6a_init_change_std_index.ipynb'
+    notebook=Path(__file__).parents[1]/'jupyter/6a_refactor_shock_ts.ipynb'
     nb=json.loads(notebook.read_text())
     settings['paths']['figure_outdir']=str(tmp_path/'figures')
     settings['dask']={'enabled':False}
@@ -141,18 +141,15 @@ def test_notebook_cells_smoke_execution(archive_inputs,tmp_path):
         'E3SM_CASES': cases,
         'variable': variable,
         'field': 'TREFHT',
-        'HEATMAP_COLORBAR_LEVELS': {
-            'signed_normalized_change': np.arange(-3.0, 3.0 + 0.5, 0.5),
-            'absolute_normalized_change': np.arange(0.0, 3.0 + 0.25, 0.25),
-        },
     }
     for i,cell in enumerate(nb['cells']):
         if cell['cell_type']=='code' and i != 3:  # replace only archive configuration
             exec(compile(''.join(cell['source']),f'notebook cell {i}','exec'),ns)
-    assert list((tmp_path/'figures').glob('*_signed_normalized_change.png'))
-    assert list((tmp_path/'figures').glob('*_absolute_normalized_change.png'))
-    assert list((tmp_path/'figures').glob('*_annual_block_evolution.png'))
+    assert list((tmp_path/'figures').glob('*_seasonal_absolute_normalized_change.png'))
+    assert list((tmp_path/'figures').glob('*_seasonal_normalized_change_scatter.png'))
+    assert list((tmp_path/'figures').glob('*_monthly_anomaly_member_vs_mean.png'))
     assert list((tmp_path/'figures').glob('*_summary.csv'))
+    assert list((tmp_path/'figures').glob('*_seasonal_summary.csv'))
 
 
 def test_require_reuses_auto_cache(archive_inputs, monkeypatch):

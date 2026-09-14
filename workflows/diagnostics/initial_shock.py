@@ -60,7 +60,17 @@ def run_initial_shock(config):
             try:
                 candidate = load_netcdf(path)
                 required = {"std_ratio", "model_std", "observation_std", "paired_sample_count",
-                            "model_index", "observation_index", "valid_ratio"}
+                            "model_index", "observation_index", "valid_ratio",
+                            "seasonal_model_year_change", "seasonal_observation_year_change",
+                            "seasonal_observation_climatology_std",
+                            "seasonal_signed_normalized_change",
+                            "seasonal_absolute_normalized_change",
+                            "monthly_model_index", "monthly_first_member_index",
+                            "monthly_observation_index",
+                            "monthly_observation_climatology_std",
+                            "monthly_model_normalized_anomaly",
+                            "monthly_first_member_normalized_anomaly",
+                            "monthly_observation_normalized_anomaly"}
                 if candidate.attrs.get("identity_sha256") == digest and required <= set(candidate):
                     result = candidate
             except (OSError, ValueError):
@@ -77,14 +87,15 @@ def run_initial_shock(config):
                     k: v for k, v in spec.get("rename", {}).items()
                     if k in verification_time.dims or k in verification_time.coords
                 })
-                observation = _field(obs_ds, config["observation"])
-                observation = align_observation_months(observation, verification_time)
+                reference_observation = _field(obs_ds, config["observation"])
+                observation = align_observation_months(reference_observation, verification_time)
                 area = None
                 if config.get("area"):
                     with xr.open_dataset(inputs["area"]["path"]) as area_ds:
                         area = area_ds[config["area"]["variable"]].load()
                 result = compute_initial_shock_index(
-                    model, observation, area=area, **config.get("settings", {})
+                    model, observation, reference_observation=reference_observation,
+                    area=area, **config.get("settings", {})
                 ).compute()
                 if inputs["model"] != _inventory(spec) or inputs["observation"] != _inventory(config["observation"]):
                     raise RuntimeError("Source input changed during computation; cache not written")
