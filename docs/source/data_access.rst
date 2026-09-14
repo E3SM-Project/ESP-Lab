@@ -1,5 +1,5 @@
 data_access.py
 --------------
-.. automodule:: data_access
+.. automodule:: esp_lab.data_access
     :members:
     :undoc-members:

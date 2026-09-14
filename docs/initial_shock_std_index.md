@@ -1,7 +1,7 @@
 # Initial-shock variability index
 
-`esp_lab.diagnostics.initial_shock` implements the active calculation in
-`temp/Compute_Std_Index_Initial_Shock_share.ncl`. The independent workflow is
+`esp_lab.diagnostics.initial_shock` implements the calculation formerly in
+`Compute_Std_Index_Initial_Shock_share.ncl`. The independent workflow is
 `workflows.diagnostics.initial_shock`; it does not use or overwrite ACC caches.
 
 ## Archive-backed driver notebook

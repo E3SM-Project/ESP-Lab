@@ -1,3 +1,5 @@
+# How to use preprocessors
+
 Preprocessors are applied to individual time series files in order to return mean CAM fields with centered time coordinates.
 
 The main steps in preprocessing are:
