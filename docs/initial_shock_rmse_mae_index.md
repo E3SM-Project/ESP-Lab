@@ -64,6 +64,6 @@ include both initialization and climatology periods.
 
 The former independently centered annual-block calculation is available as
 `compute_legacy_initial_shock_error_index` for explicit comparisons with
-[`temp/Compute_RMSE_With_MAE_Index_share.ncl`](../temp/Compute_RMSE_With_MAE_Index_share.ncl).
+the legacy NCL calculation (`Compute_RMSE_With_MAE_Index_share.ncl`).
 It is not the default 6b metric because a 24-month forecast supplies only two
 annual-block samples and hides seasonal error evolution.
