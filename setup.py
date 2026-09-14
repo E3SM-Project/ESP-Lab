@@ -31,7 +31,7 @@ CLASSIFIERS = [
 setup(
     name='esp-lab',
     version='1.2.0',
-    description='Utilities for SMYLE Analysis',
+    description='Diagnostic and analysis utilities for E3SM S2D ensemble predictions',
     long_description=long_description,
     long_description_content_type='text/markdown',
     python_requires='>=3.10',
@@ -50,5 +50,5 @@ setup(
     license='Apache 2.0',
     zip_safe=False,
     entry_points={},
-    keywords='ESP-Lab, SMYLE, Analysis, Earth System Predictions',
+    keywords='ESP-Lab, E3SM, S2D, SMYLE, Earth System Predictions, diagnostics',
 )
