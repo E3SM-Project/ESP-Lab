@@ -18,7 +18,7 @@ from esp_lab.diagnostics.initial_shock import VERSION, align_observation_months,
 from esp_lab.paths import diagnostic_dir
 from esp_lab.utils.netcdf_utils import atomic_to_netcdf, load_netcdf
 
-ARCHIVE_VERSION = 'initial_shock_archive_v3'
+ARCHIVE_VERSION = 'initial_shock_archive_v4'
 
 
 def _scientific_code_digest():
@@ -59,7 +59,8 @@ def _cache_valid(path, digest):
                         'monthly_observation_climatology_std',
                         'monthly_model_normalized_anomaly',
                         'monthly_first_member_normalized_anomaly',
-                        'monthly_observation_normalized_anomaly'}
+                        'monthly_observation_normalized_anomaly',
+                        'monthly_verification_time'}
             return ds.attrs.get('identity_sha256') == digest and required <= set(ds.variables)
     except (OSError, ValueError):
         return False

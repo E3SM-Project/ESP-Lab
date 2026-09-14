@@ -8,7 +8,6 @@ import xarray as xr
 
 from workflows.diagnostics import initial_shock_archive as archive
 from workflows.diagnostics import initial_shock_error_archive as error_archive
-from esp_lab.diagnostics.initial_shock_error import NCL_MAE_RANGES, NCL_RMSE_RANGES
 
 
 @pytest.fixture
@@ -197,31 +196,37 @@ def test_rmse_mae_archive_cache_and_notebook_smoke(archive_inputs, tmp_path):
     settings, cases, variable = archive_inputs
     settings['paths']['figure_outdir'] = str(tmp_path / 'figures')
     settings['dask'] = {'enabled': False}
+    settings['metric']['climatology_years'] = [1980, 1981]
+    settings['metric']['monthly_error_min_samples'] = 1
+    settings['metric']['seasonal_error_min_samples'] = 1
     plan = error_archive.plan_archive_run(settings, cases, variable)
     result = error_archive.compute_archive_plan(plan, settings, variable)[5]
-    np.testing.assert_allclose(result.rmse, np.sqrt(72.))
-    np.testing.assert_allclose(result.mae, 6.)
-    np.testing.assert_allclose(result.normalized_rmse, 1.)
-    np.testing.assert_allclose(result.normalized_mae, 1. / np.sqrt(2.))
+    expected_rmse = np.sqrt((result.monthly_raw_error ** 2).mean('lead_month'))
+    expected_mae = abs(result.monthly_raw_error).mean('lead_month')
+    expected_nrmse = np.sqrt((result.monthly_standardized_error ** 2).mean('lead_month'))
+    expected_nmae = abs(result.monthly_standardized_error).mean('lead_month')
+    xr.testing.assert_allclose(result.rmse, expected_rmse)
+    xr.testing.assert_allclose(result.mae, expected_mae)
+    xr.testing.assert_allclose(result.normalized_rmse, expected_nrmse)
+    xr.testing.assert_allclose(result.normalized_mae, expected_nmae)
+    assert result.seasonal_normalized_rmse.dims == ('case', 'Y', 'lead_year', 'season')
     second = error_archive.plan_archive_run(settings, cases, variable)
     assert not second[0]['rebuild'] and not second[0]['error_rebuild']
     xr.testing.assert_allclose(error_archive.compute_archive_plan(second, settings, variable)[5], result)
 
-    notebook = Path(__file__).parents[1] / 'jupyter/6b_init_change_rmse_mae_index.ipynb'
+    notebook = Path(__file__).parents[1] / 'jupyter/6b_refactor_shock_index.ipynb'
     nb = json.loads(notebook.read_text())
     ns = {'WORKFLOW_SETTINGS': settings, 'E3SM_CASES': cases, 'variable': variable,
-          'field': 'TREFHT', 'RMSE_RANGES': NCL_RMSE_RANGES,
-          'MAE_RANGES': NCL_MAE_RANGES,
-          'ERROR_HEATMAP_LEVELS': {
-              'normalized_rmse': np.arange(0., 2.0 + .2, .2),
-              'normalized_mae': np.arange(0., 2.0 + .2, .2),
-          },
-          'PLOT_INITIALIZATION_INSPECTION': False}
+          'field': 'TREFHT',
+          'ERROR_HEATMAP_LEVELS': np.arange(0., 2.0 + .2, .2),
+          'PLOT_SEASONAL_ERROR_HEATMAPS': True}
     for i, cell in enumerate(nb['cells']):
         if cell['cell_type'] == 'code' and i != 3:
             exec(compile(''.join(cell['source']), f'notebook cell {i}', 'exec'), ns)
-    assert list((tmp_path / 'figures').glob('*_rmse_mae.png'))
-    assert list((tmp_path / 'figures').glob('*_rmse_mae_summary.csv'))
+    assert list((tmp_path / 'figures').glob('*_monthly_normalized_rmse.png'))
+    assert list((tmp_path / 'figures').glob('*_seasonal_normalized_rmse.png'))
+    assert list((tmp_path / 'figures').glob('*_monthly_rmse_mae_summary.csv'))
+    assert list((tmp_path / 'figures').glob('*_seasonal_rmse_mae_summary.csv'))
 
 
 def test_rmse_mae_force_compute_refreshes_same_cache(archive_inputs):
