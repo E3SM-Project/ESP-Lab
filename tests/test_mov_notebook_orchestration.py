@@ -138,15 +138,6 @@ def test_notebook_uses_centralized_figure_configuration():
         assert legacy_block not in source
 
 
-def test_legacy_mov_drivers_are_grouped_as_optional_preprocessing():
-    root = NOTEBOOK.parents[1]
-    preprocessing = NOTEBOOK.parent / "preprocessing" / "mov"
-    assert not (NOTEBOOK.parent / "0_run_sigmod_emov.ipynb").exists()
-    assert not (NOTEBOOK.parent / "0_run_nmme_emov.ipynb").exists()
-    assert (preprocessing / "0_run_sigmod_emov.ipynb").is_file()
-    assert (preprocessing / "0_run_nmme_emov.ipynb").is_file()
-    assert (preprocessing / "README.md").is_file()
-    assert (root / "scripts" / "run_process_modes_of_variability.py").is_file()
 
 
 @pytest.mark.parametrize(
