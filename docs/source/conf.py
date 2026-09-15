@@ -87,9 +87,9 @@ except ImportError:
 html_title = 'ESP-Lab'
 
 html_context = {
-    'github_user': 'CESM-ESPWG',
+    'github_user': 'zhangshixuan1987',
     'github_repo': 'ESP-Lab',
-    'github_version': 'main',
+    'github_version': 'e3sm-esp',
     'doc_path': 'docs',
 }
 html_theme_options = dict(
