@@ -1,10 +1,33 @@
+import os
+import sys
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+
+
+def _configure_conda_geospatial_data_paths():
+    """Provide GDAL/PROJ data paths when a Conda kernel omits activation vars."""
+    share = Path(sys.prefix) / "share"
+    candidates = {
+        "GDAL_DATA": share / "gdal",
+        "PROJ_DATA": share / "proj",
+    }
+    for variable, path in candidates.items():
+        if variable not in os.environ and path.is_dir():
+            os.environ[variable] = str(path)
+
+
+_configure_conda_geospatial_data_paths()
 
 from . import data_access_smyle
 from . import data_access_e3sm
 from . import data_access_cesm_smyle
 from . import diagnostics
-from . import psl_skill
+from . import land_skill
+from . import land_input_cache
+from . import leadtime_prepared_cache
+from . import index_reference_skill
+from . import eli_diagnostics
+from . import paths
 from .data_access_smyle import get_monthly_data as get_monthly_data_smyle
 from .data_access_smyle import preprocessor as preprocessor_smyle
 from .data_access_e3sm import get_monthly_data as get_monthly_data_e3sm
@@ -18,7 +41,12 @@ __all__ = [
     "data_access_e3sm",
     "data_access_cesm_smyle",
     "diagnostics",
-    "psl_skill",
+    "land_skill",
+    "land_input_cache",
+    "leadtime_prepared_cache",
+    "index_reference_skill",
+    "eli_diagnostics",
+    "paths",
     "get_monthly_data_smyle",
     "preprocessor_smyle",
     "get_monthly_data_e3sm",

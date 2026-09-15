@@ -6,25 +6,31 @@ archive stored under a per-initialization-date directory tree. The
 interface mirrors ``data_access_e3sm`` so that the two datasets can be
 loaded with near-identical calling code.
 
-Expected directory structure
-----------------------------
-<data_dir>/
-  b.e21.BSMYLE.f09_g17_<YYYYMM>0100/
-    EN01/
-      post/atm/f09_g17/ts/monthly/
-        b.e21.BSMYLE.f09_g17.<YYYY>-<MM>.<EEE>.cam.h0.<FIELD>.<start_YYYYMM>-<end_YYYYMM>.nc
-    EN02/
-      post/atm/f09_g17/ts/monthly/
+Expected CESM-SMYLE directory structure
+---------------------------------------
+::
+
+    <data_dir>/
+      b.e21.BSMYLE.f09_g17_<YYYYMM>0100/
+        EN01/
+          post/atm/f09_g17/ts/monthly/
+            b.e21.BSMYLE.f09_g17.<YYYY>-<MM>.<EEE>.cam.h0.<FIELD>.<start_YYYYMM>-<end_YYYYMM>.nc
+        EN02/
+          post/atm/f09_g17/ts/monthly/
+            ...
         ...
-    ...
 
-Example top-level case directory
----------------------------------
-b.e21.BSMYLE.f09_g17_1980020100
+Example CESM-SMYLE top-level case directory
+-------------------------------------------
+::
 
-Example file (member EN20, init 2018-08)
------------------------------------------
-b.e21.BSMYLE.f09_g17.2018-08.020.cam.h0.TREFHT.201808-202007.nc
+    b.e21.BSMYLE.f09_g17_1980020100
+
+Example CESM-SMYLE file (member EN20, init 2018-08)
+---------------------------------------------------
+::
+
+    b.e21.BSMYLE.f09_g17.2018-08.020.cam.h0.TREFHT.201808-202007.nc
 
 Notes
 -----
@@ -49,23 +55,25 @@ Notes
    ``time_set_midmonth`` logic used by ``data_access_e3sm`` to normalize
    timestamps to the 15th of the represented month.
 
-Typical use
------------
-from esp_lab import data_access_cesm_smyle as smyle_access
+Typical CESM-SMYLE use
+-----------------------
+::
 
-field = "TREFHT"
-data_dir = "/global/cfs/cdirs/e3sm/S2S2D/CESM-SMYLE"
-members = [f"EN{i:02d}" for i in range(1, 21)]   # EN01 … EN20
-init_tags = smyle_access.build_init_tags(range(1980, 2019), [2, 5, 8, 11])
+    from esp_lab import data_access_cesm_smyle as smyle_access
 
-ds = smyle_access.get_monthly_data(
-    data_dir=data_dir,
-    members=members,
-    init_tags=init_tags,
-    field=field,
-    nlead=24,
-)
-# ds has dimensions (Y, L, M, lat, lon)
+    field = "TREFHT"
+    data_dir = "/global/cfs/cdirs/e3sm/S2S2D/CESM-SMYLE"
+    members = [f"EN{i:02d}" for i in range(1, 21)]   # EN01 … EN20
+    init_tags = smyle_access.build_init_tags(range(1980, 2019), [2, 5, 8, 11])
+
+    ds = smyle_access.get_monthly_data(
+        data_dir=data_dir,
+        members=members,
+        init_tags=init_tags,
+        field=field,
+        nlead=24,
+    )
+    # ds has dimensions (Y, L, M, lat, lon)
 """
 
 import re
@@ -78,6 +86,7 @@ import cftime
 import numpy as np
 import pandas as pd
 import xarray as xr
+
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +289,97 @@ def build_init_tags(
         for m in months:
             tags.append(f"{y:04d}{m:02d}{init_day:02d}{init_hour:02d}")
     return tags
+
+
+VERIFICATION_TIME_VERSION = "init_tag_plus_lead_v1"
+
+
+def expected_verification_time(
+    init_tags: Iterable[object],
+    leads: Iterable[object],
+) -> xr.DataArray:
+    """Build deterministic mid-month verification dates from init tags and leads."""
+    init_values = [str(value) for value in init_tags]
+    lead_values = [int(value) for value in leads]
+    values = []
+    for init_tag in init_values:
+        if len(init_tag) < 6 or not init_tag[:6].isdigit():
+            raise ValueError(f"Invalid CESM-SMYLE initialization tag: {init_tag!r}")
+        init_year = int(init_tag[:4])
+        init_month = int(init_tag[4:6])
+        row = []
+        for lead in lead_values:
+            if lead < 1:
+                raise ValueError(f"CESM-SMYLE lead values must be >= 1, got {lead}")
+            month_index = init_month - 1 + lead - 1
+            row.append(
+                cftime.DatetimeNoLeap(
+                    init_year + month_index // 12,
+                    month_index % 12 + 1,
+                    15,
+                )
+            )
+        values.append(row)
+    return xr.DataArray(
+        np.asarray(values, dtype=object),
+        dims=("Y", "L"),
+        coords={"Y": init_values, "L": lead_values},
+        name="time",
+        attrs={
+            "long_name": "forecast verification time",
+            "construction": VERIFICATION_TIME_VERSION,
+        },
+    )
+
+
+def verification_time_mismatch_count(
+    ds: xr.Dataset,
+    *,
+    init_month: Optional[int] = None,
+) -> int:
+    """Count dates inconsistent with the dataset's initialization tags and leads."""
+    if "Y" not in ds.coords or "L" not in ds.coords:
+        raise ValueError("CESM-SMYLE dataset must have Y and L coordinates.")
+    if init_month is not None:
+        bad_init = [str(value) for value in ds.Y.values if int(str(value)[4:6]) != init_month]
+        if bad_init:
+            raise ValueError(
+                f"Dataset contains initialization tags inconsistent with month {init_month:02d}: "
+                f"{bad_init[:3]}"
+            )
+    expected = expected_verification_time(ds.Y.values, ds.L.values)
+    if "time" not in ds or ds["time"].dims != ("Y", "L"):
+        return expected.size
+    actual = ds["time"]
+    mismatch = (
+        (actual.dt.year != expected.dt.year)
+        | (actual.dt.month != expected.dt.month)
+        | (actual.dt.day != expected.dt.day)
+    )
+    return int(mismatch.sum().compute())
+
+
+def ensure_verification_time(
+    ds: xr.Dataset,
+    *,
+    init_month: Optional[int] = None,
+    warn_on_repair: bool = True,
+) -> xr.Dataset:
+    """Return *ds* with a valid deterministic ``time(Y, L)`` coordinate."""
+    mismatch_count = verification_time_mismatch_count(ds, init_month=init_month)
+    if mismatch_count and warn_on_repair:
+        warnings.warn(
+            f"Repairing {mismatch_count} inconsistent CESM-SMYLE verification "
+            "timestamp(s) from initialization tags and lead values.",
+            stacklevel=2,
+        )
+    expected = expected_verification_time(ds.Y.values, ds.L.values)
+    expected = expected.assign_coords(Y=ds.Y, L=ds.L)
+    out = ds.copy()
+    out["time"] = expected
+    out.attrs["verification_time_construction"] = VERIFICATION_TIME_VERSION
+    out.attrs["verification_time_repaired_count"] = mismatch_count
+    return out
 
 
 def expected_yyyymm_range(init_tag: str, nlead: int) -> Tuple[str, str]:
@@ -586,6 +686,7 @@ def get_monthly_data(
     verify_field_name: bool = True,
     verify_coverage: bool = False,
     engine: str = "netcdf4",
+    open_parallel: bool = True,
 ) -> xr.Dataset:
     """
     Return a dask-backed xarray dataset arranged as (Y, L, M, lat, lon).
@@ -619,6 +720,9 @@ def get_monthly_data(
         See :func:`nested_file_list_by_init`.
     engine : str, optional
         xarray backend engine (default 'netcdf4').
+    open_parallel : bool, optional
+        Passed to :func:`xarray.open_mfdataset`.  Set to ``False`` on
+        filesystems where parallel netCDF metadata opens are noisy or unstable.
 
     Returns
     -------
@@ -691,25 +795,38 @@ def get_monthly_data(
         chunks=open_chunks,
     )
 
-    try:
-        ds = xr.open_mfdataset(file_list, parallel=True, **open_kwargs)
-    except Exception as e:
-        if any(tok in str(e) for tok in (
-            "HDF error", "Unable to open file",
-            "Unknown file format", "errno = -"
-        )):
-            warnings.warn(
-                f"open_mfdataset parallel=True failed ({e}). "
-                "Retrying with parallel=False."
-            )
-            ds = xr.open_mfdataset(file_list, parallel=False, **open_kwargs)
-        else:
-            raise
+    if open_parallel:
+        try:
+            ds = xr.open_mfdataset(file_list, parallel=True, **open_kwargs)
+        except Exception as e:
+            if any(tok in str(e) for tok in (
+                "HDF error",
+                "Unable to open file",
+                "Unknown file format",
+                "NetCDF: Not a valid ID",
+                "errno = -",
+            )):
+                warnings.warn(
+                    f"open_mfdataset parallel=True failed ({e}). "
+                    "Retrying with parallel=False."
+                )
+                # NetCDF4 metadata opens on CFS can fail intermittently when many
+                # files are opened in parallel; the serial path is slower but safer.
+                ds = xr.open_mfdataset(file_list, parallel=False, **open_kwargs)
+            else:
+                raise
+    else:
+        ds = xr.open_mfdataset(file_list, parallel=False, **open_kwargs)
 
     ds = ds.assign_coords(Y=("Y", valid_inits))
     n_loaded = ds.sizes["M"]
     ds = ds.assign_coords(M=("M", members[:n_loaded]))
     ds = ds.transpose("Y", "L", "M", ...)
+    # Do not trust a lazily concatenated source ``time`` variable here.  Older
+    # benchmark files demonstrated that it can become detached from Y during
+    # multi-file combination even while the field data remain correctly
+    # ordered.  Y and L fully determine verification time for this archive.
+    ds = ensure_verification_time(ds, warn_on_repair=False)
     if post_chunks:
         ds = ds.chunk(post_chunks)
 
@@ -719,9 +836,6 @@ def get_monthly_data(
 # ---------------------------------------------------------------------------
 # Benchmark helpers
 # ---------------------------------------------------------------------------
-
-BENCHMARK_OUTDIR_DEFAULT = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/CESM-SMYLE"
-
 
 def benchmark_filename(
     field: str,
@@ -754,10 +868,37 @@ def benchmark_filename(
     return f"BSMYLE{init_month:02d}_{field}_N{nens:02d}_M{nlead:02d}_{freq}.nc"
 
 
+def benchmark_path(
+    field: str,
+    init_month: int,
+    benchmark_dir: str | Path,
+    nens: int = 20,
+    nlead: int = 24,
+    freq: str = "seas",
+) -> Path:
+    """Resolve the benchmark file that :func:`load_benchmark` will open."""
+    fname = benchmark_filename(field, init_month, nens=nens, nlead=nlead, freq=freq)
+    benchmark_root = Path(benchmark_dir)
+    candidates = [
+        benchmark_root / "leadtime_acc" / "inputs" / "atm" / field / fname,
+        benchmark_root / "leadtime_acc" / "inputs" / field / fname,
+        benchmark_root / fname,
+    ]
+    fpath = next((path for path in candidates if path.exists()), candidates[0])
+    if not fpath.exists():
+        raise FileNotFoundError(
+            "Benchmark file not found. Checked:\n"
+            + "\n".join(f"  {path}" for path in candidates)
+            + "\n"
+            "Run scripts/run_process_cesm_smyle_benchmark.py to generate it."
+        )
+    return fpath
+
+
 def load_benchmark(
     field: str,
     init_month: int,
-    benchmark_dir: str = BENCHMARK_OUTDIR_DEFAULT,
+    benchmark_dir: str | Path,
     nens: int = 20,
     nlead: int = 24,
     freq: str = "seas",
@@ -777,9 +918,9 @@ def load_benchmark(
         Variable name, e.g. 'TREFHT', 'TS', 'PRECT', 'PSL'.
     init_month : int
         Initialization month (2, 5, 8, or 11 for this archive).
-    benchmark_dir : str, optional
-        Directory containing benchmark files.
-        Default: '/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/CESM-SMYLE'.
+    benchmark_dir : path-like
+        CESM-SMYLE diagnostic directory or direct directory containing benchmark
+        files.
     nens : int, optional
         Number of ensemble members encoded in the filename (default 20).
     nlead : int, optional
@@ -803,17 +944,16 @@ def load_benchmark(
     Examples
     --------
     >>> from esp_lab import data_access_cesm_smyle as smyle
-    >>> ds = smyle.load_benchmark("TREFHT", init_month=5)
+    >>> ds = smyle.load_benchmark(
+    ...     "TREFHT", init_month=5, benchmark_dir="/path/to/CESM-SMYLE"
+    ... )
     >>> print(ds)
     """
-    fname = benchmark_filename(field, init_month, nens=nens, nlead=nlead, freq=freq)
-    fpath = Path(benchmark_dir) / fname
-    if not fpath.exists():
-        raise FileNotFoundError(
-            f"Benchmark file not found: {fpath}\n"
-            "Run scripts/run_process_cesm_smyle_benchmark.py to generate it."
-        )
+    fpath = benchmark_path(
+        field, init_month, benchmark_dir, nens=nens, nlead=nlead, freq=freq
+    )
     if chunks is None:
         # f09_g17 grid is 192 lat × 288 lon; chunk at half-grid
         chunks = {"Y": 3, "L": -1, "M": 2, "lat": 96, "lon": 144}
-    return xr.open_dataset(str(fpath), chunks=chunks)
+    ds = xr.open_dataset(str(fpath), chunks=chunks)
+    return ensure_verification_time(ds, init_month=init_month)

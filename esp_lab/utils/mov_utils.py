@@ -8,6 +8,10 @@ import numpy as np
 import matplotlib.path as mpath
 import matplotlib.ticker as mticker
 
+# Backward compatibility for existing MOV notebooks. New code should import
+# these generic helpers directly from esp_lab.utils.filename_utils.
+from .filename_utils import figure_filename, safe_token
+
 try:
     import cartopy.crs as ccrs
     import cartopy.feature as cfeature
@@ -28,13 +32,16 @@ DEFAULT_PROJECTION_BY_MODE = {
     "NAO": "atlantic",
     "EA": "atlantic",
     "SCA": "atlantic",
-    "PNA": "north_polar",
+    "PNA": "north_pacific",
     "PSA1": "south_polar",
     "PSA2": "south_polar",
     "NPO": "north_pacific",
     "PDO": "north_pacific",
     "NPGO": "north_pacific",
-    "AMO": "atlantic",
+    # AMO spans the tropical through subpolar Atlantic.  An Albers map with a
+    # rectangular geographic extent clips the northwest corner of this tall
+    # domain, which can hide physically important EOF lobes near 40N, 70W.
+    "AMO": "platecarree",
 }
 
 
@@ -133,6 +140,8 @@ def mode_extent(mode, pattern):
         return [-180, 180, max(20, lat_min), 90]
     if mode in {"SAM", "PSA1", "PSA2"}:
         return [-180, 180, -90, min(-20, lat_max)]
+    if mode == "PNA":
+        return [120, 240, 15, min(85, lat_max)]
     if mode in {"NPO", "PDO", "NPGO"}:
         return [120, 240, 15, 75]
     return [lon_min, lon_max, lat_min, lat_max]
@@ -267,6 +276,9 @@ def add_polar_longitude_labels(
                 0.5 + float(axes_radius) * np.cos(angle),
                 0.5 + float(axes_radius) * np.sin(angle),
                 format_longitude_label(lon),
+                # The coordinates above are fractions of the axes, not
+                # geographic longitude/latitude values.  Using the data CRS
+                # here collapses the labels around the polar map seam.
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
@@ -457,7 +469,7 @@ def _draw_manual_lonlat_labels(
                 x_position,
                 y,
                 label,
-                transform=data_projection,
+                transform=ax.transAxes,
                 ha="right",
                 va="center",
                 fontsize=label_fontsize,
@@ -479,7 +491,7 @@ def _draw_manual_lonlat_labels(
                 x,
                 y_position,
                 label,
-                transform=data_projection,
+                transform=ax.transAxes,
                 ha="center",
                 va="top",
                 fontsize=label_fontsize,
@@ -594,22 +606,6 @@ def configure_gridlines(
         gridliner.yformatter = LATITUDE_FORMATTER
 
     return gridliner
-
-# -----------------------------------------------------------------------------
-# General notebook/workflow helpers
-# -----------------------------------------------------------------------------
-def safe_token(value):
-    """Return a filesystem-safe token for figure/file names."""
-    import re
-
-    return re.sub(r"[^A-Za-z0-9]+", "_", str(value)).strip("_").lower()
-
-
-def figure_filename(*parts, ext="png"):
-    """Build a consistent figure filename from descriptive tokens."""
-    clean = ["fig"] + [safe_token(part) for part in parts if str(part).strip()]
-    return "_".join(clean) + f".{ext.lstrip('.').lower()}"
-
 
 def save_figure(fig, figpath, *, mode, metric, title="", caption="", dpi=150, **extra):
     """Save a figure and upsert its entry in the figures.json manifest.

@@ -26,11 +26,61 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workflows import modes_of_variability_core as core
+from workflows.modes_of_variability import analysis as modes_analysis
 
 
 LOG = logging.getLogger(__name__)
 PRODUCT_CONFIGURATION_SCHEMA = 6
+
+
+def smyle_benchmark_fingerprints(
+    settings: dict[str, object],
+    args: argparse.Namespace,
+) -> list[dict[str, object]]:
+    """Describe the benchmark files that feed a SMYLE field product.
+
+    Including these lightweight file fingerprints in the cache signature
+    prevents a corrected upstream benchmark from leaving an older regridded
+    field/index cache falsely reusable.
+    """
+    archive_field = str(
+        settings.get(
+            "archive_field",
+            "TS" if str(settings["field"]) == "SST" else settings["field"],
+        )
+    )
+    frequency = "seas" if settings["frequency"] == "seasonal" else "mon"
+    root = Path(args.smyle_benchmark_dir)
+    fingerprints: list[dict[str, object]] = []
+    for init_month in args.init_months:
+        name = modes_analysis.smyle_access.benchmark_filename(
+            archive_field,
+            init_month,
+            nens=args.smyle_nens,
+            nlead=args.monthly_nlead,
+            freq=frequency,
+        )
+        candidates = [
+            root / "leadtime_acc" / "inputs" / "atm" / archive_field / name,
+            root / "leadtime_acc" / "inputs" / archive_field / name,
+            root / name,
+        ]
+        path = next(
+            (candidate for candidate in candidates if candidate.exists()),
+            candidates[0],
+        )
+        record: dict[str, object] = {
+            "init_month": int(init_month),
+            "path": str(path.resolve()),
+        }
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            record["missing"] = True
+        else:
+            record.update(size=int(stat.st_size), mtime_ns=int(stat.st_mtime_ns))
+        fingerprints.append(record)
+    return fingerprints
 
 
 def configuration_signature(
@@ -74,7 +124,29 @@ def configuration_signature(
             signature.update(
                 benchmark_dir=str(Path(args.smyle_benchmark_dir).resolve()),
                 ensemble_size=args.smyle_nens,
+                benchmark_inputs=smyle_benchmark_fingerprints(settings, args),
             )
+        elif source == "nmme":
+            signature.update(
+                nmme_root=str(Path(args.nmme_root).resolve()),
+                nmme_models=list(args.nmme_models),
+                nmme_field=str(args.nmme_field),
+            )
+            if str(settings["field"]) == "SST":
+                signature["nmme_sst_mask_version"] = (
+                    modes_analysis.nmme_access.NMME_SST_MASK_VERSION
+                )
+                signature["nmme_sst_land_mask"] = bool(
+                    args.nmme_sst_land_mask
+                )
+                signature["nmme_fixed_dir"] = str(
+                    Path(args.nmme_fixed_dir).resolve()
+                )
+        if source in {"e3sm", "smyle"} and str(settings["field"]) == "SST":
+            signature["model_sst_preprocessing_version"] = (
+                modes_analysis.sst_utils.SST_PREPROCESSING_VERSION
+            )
+            signature["model_sst_land_mask"] = bool(args.model_sst_land_mask)
     if include_mode:
         signature["mode"] = str(settings["mode"])
         signature["eof_number"] = int(settings["eof_number"])
@@ -82,6 +154,10 @@ def configuration_signature(
         signature["eof_scaling"] = bool(args.eof_scaling)
         signature["remove_domain_mean"] = bool(args.remove_domain_mean)
         signature["eof_strategy"] = getattr(args, "eof_strategy", "fixed_obs_projection")
+        if str(settings["mode"]) in modes_analysis.TEMPERATURE_MODES:
+            signature["fixed_basis_projection_mask_version"] = (
+                modes_analysis.FIXED_BASIS_PROJECTION_MASK_VERSION
+            )
         signature["eof_reference"] = {
             "source": getattr(args, "eof_reference_source", "obs"),
             "years": [
@@ -98,7 +174,13 @@ def configuration_signature(
     return json.dumps(signature, sort_keys=True, separators=(",", ":"))
 
 
-def cached_product_matches(path: Path, attribute: str, expected: str) -> bool:
+def cached_product_matches(
+    path: Path,
+    attribute: str,
+    expected: str,
+    *,
+    allow_year_superset: bool = False,
+) -> bool:
     """Return True only when a readable cached product has the expected signature."""
     try:
         with xr.open_dataset(path, decode_times=False) as dataset:
@@ -106,7 +188,50 @@ def cached_product_matches(path: Path, attribute: str, expected: str) -> bool:
     except Exception as error:
         LOG.warning("Cannot read cached product %s: %s", path, error)
         return False
-    if actual != expected:
+    def normalized(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        try:
+            payload = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return value
+        if isinstance(payload, dict):
+            # Dask chunking changes execution cost, not scientific content.
+            # Ignore this legacy signature field so products written before
+            # chunking was made operational remain reusable.
+            payload.pop("nmme_chunks", None)
+            # The benchmark root is recorded separately. Treat the former
+            # inputs/FIELD and canonical inputs/atm/FIELD layouts as the same
+            # source when filename, size, and modification time agree.
+            for record in payload.get("benchmark_inputs", []):
+                if isinstance(record, dict) and record.get("path"):
+                    record["path"] = Path(record["path"]).name
+            return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return value
+
+    actual_normalized = normalized(actual)
+    expected_normalized = normalized(expected)
+    if allow_year_superset and actual_normalized != expected_normalized:
+        try:
+            actual_payload = json.loads(actual_normalized)
+            expected_payload = json.loads(expected_normalized)
+            actual_years = actual_payload.get("years")
+            expected_years = expected_payload.get("years")
+            if (
+                isinstance(actual_years, list)
+                and isinstance(expected_years, list)
+                and len(actual_years) == len(expected_years) == 2
+                and actual_years[0] <= expected_years[0]
+                and actual_years[1] >= expected_years[1]
+            ):
+                actual_payload["years"] = expected_years
+                actual_normalized = json.dumps(
+                    actual_payload, sort_keys=True, separators=(",", ":")
+                )
+        except (AttributeError, TypeError, json.JSONDecodeError):
+            pass
+
+    if actual_normalized != expected_normalized:
         LOG.info("%s has an incompatible or missing %s", path, attribute)
         return False
     return True
@@ -176,7 +301,7 @@ def index_dataset(
     field_ds: xr.Dataset,
     source: str,
     settings: dict[str, object],
-    station_definition: core.StationNaoDefinition,
+    station_definition: modes_analysis.StationNaoDefinition,
     args: argparse.Namespace,
     references: dict[int, dict[str, object]] | None = None,
 ) -> tuple[xr.Dataset, dict[int, dict[str, object]] | None]:
@@ -190,18 +315,18 @@ def index_dataset(
                 str(args.eof_reference_end_year),
             )
         )
-        mode_ds, references = core.pcmdi_mode_reference(
+        mode_ds, references = modes_analysis.pcmdi_mode_reference(
             reference_anomalies, settings, args
         )
         if mode == "NAO":
-            mode_ds["nao_station"] = core.station_nao_obs(
+            mode_ds["nao_station"] = modes_analysis.station_nao_obs(
                 reference_anomalies, station_definition
             ).load()
         return add_mode_aliases(mode_ds, mode), references
 
     if references is None:
         raise ValueError(f"Observational PCMDI EOF references are required for {mode}.")
-    mode_ds = core.pcmdi_mode_model(
+    mode_ds = modes_analysis.pcmdi_mode_model(
         anomalies,
         field_ds["valid_time"],
         references,
@@ -209,7 +334,7 @@ def index_dataset(
         args,
     )
     if mode == "NAO":
-        mode_ds["nao_station"] = core.station_nao_model(
+        mode_ds["nao_station"] = modes_analysis.station_nao_model(
             anomalies, station_definition
         ).load()
     mode_ds["valid_time"] = field_ds["valid_time"]
@@ -223,12 +348,19 @@ def write_product(
     source: str,
     settings: dict[str, object],
     args: argparse.Namespace,
-    station_definition: core.StationNaoDefinition,
+    station_definition: modes_analysis.StationNaoDefinition,
     product_kind: str,
 ) -> None:
     dataset = dataset.copy()
-    core.validate_spatial_coordinates(dataset, f"{source} {product_kind} product")
+    modes_analysis.validate_spatial_coordinates(dataset, f"{source} {product_kind} product")
     mode = str(settings["mode"])
+    if product_kind == "index" and "mode_index" in dataset:
+        finite_count = int(dataset["mode_index"].notnull().sum().compute())
+        if finite_count == 0:
+            raise ValueError(
+                f"Refusing to write {source} {mode} index product: mode_index "
+                "contains no finite values."
+            )
     dataset.attrs.update(
         title=f"Processed {mode} mode-of-variability diagnostics",
         source=source.upper(),
@@ -247,6 +379,17 @@ def write_product(
             else "PCMDI conventional EOF pattern"
         ),
         common_basis_reference=str(settings["obs_product"]),
+        observation_data_period=(
+            f"{args.obs_start_year}-{args.obs_end_year}"
+        ),
+        eof_reference_period=(
+            f"{args.eof_reference_start_year}-{args.eof_reference_end_year}"
+        ),
+        hindcast_initialization_period=(
+            "not_applicable"
+            if source == "obs"
+            else f"{args.start_year}-{args.end_year}"
+        ),
         eof_scaling=str(args.eof_scaling),
         remove_domain_mean=str(args.remove_domain_mean),
         sst_ocean_mask_min_valid_fraction=str(
@@ -283,7 +426,7 @@ def write_product(
         for name, variable in dataset.data_vars.items()
         if np.issubdtype(variable.dtype, np.number)
     }
-    core.atomic_to_netcdf(dataset, path, encoding=encoding)
+    modes_analysis.atomic_to_netcdf(dataset, path, encoding=encoding)
 
 
 def process_one(
@@ -292,21 +435,33 @@ def process_one(
     settings: dict[str, object],
     args: argparse.Namespace,
     destination_grid: xr.Dataset,
-    station_definition: core.StationNaoDefinition,
+    station_definition: modes_analysis.StationNaoDefinition,
     references: dict[int, dict[str, object]] | None = None,
     force_field: bool = False,
 ) -> tuple[dict[str, str], dict[int, dict[str, object]] | None]:
     mode = str(settings["mode"])
-    field_path, index_path = core.product_paths(
+    output_source = (
+        str(getattr(args, "e3sm_cache_tag", "e3sm"))
+        if source == "e3sm"
+        else source
+    )
+    field_path, index_path = modes_analysis.product_paths(
         Path(args.outdir),
         mode,
-        source,
+        output_source,
         init_month,
-        core.grid_token(args.target_dlat, args.target_dlon),
+        modes_analysis.grid_token(args.target_dlat, args.target_dlon),
         settings,
         args.legacy_nao_layout,
     )
-    source_label = str(settings["obs_product"]) if source == "obs" else source.upper()
+    if source == "obs":
+        source_label = str(settings["obs_product"])
+    elif source == "e3sm":
+        source_label = str(getattr(args, "e3sm_display_name", "E3SM"))
+    elif source == "nmme":
+        source_label = "NMME"
+    else:
+        source_label = source.upper()
     label = source_label if init_month is None else f"{source_label} init {init_month:02d}"
     field_signature = configuration_signature(
         source, settings, args, include_mode=False
@@ -336,11 +491,11 @@ def process_one(
     else:
         LOG.info("%s %s: processing %s", mode, label, settings["field"])
         if source == "obs":
-            field_ds = core.obs_field_dataset(settings, args, destination_grid)
+            field_ds = modes_analysis.obs_field_dataset(settings, args, destination_grid)
         else:
             if init_month is None:
                 raise ValueError(f"{source} requires an initialization month.")
-            field_ds = core.model_field_dataset(
+            field_ds = modes_analysis.model_field_dataset(
                 source, init_month, settings, args, destination_grid
             )
         write_product(
@@ -410,10 +565,12 @@ def write_manifest(
     args: argparse.Namespace,
     mode_configs: dict[str, dict[str, object]],
     products: dict[str, dict[str, str]],
-    station_definition: core.StationNaoDefinition,
+    station_definition: modes_analysis.StationNaoDefinition,
 ) -> Path:
-    name = "nao_manifest.json" if args.legacy_nao_layout else "modes_manifest.json"
-    path = Path(args.outdir) / name
+    if args.legacy_nao_layout:
+        path = Path(args.outdir) / "nao_manifest.json"
+    else:
+        path = Path(args.outdir) / "_manifests" / "modes_manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": PRODUCT_CONFIGURATION_SCHEMA,
@@ -423,6 +580,7 @@ def write_manifest(
         "modes": mode_configs,
         "init_months": args.init_months,
         "years": [args.start_year, args.end_year],
+        "hindcast_initialization_years": [args.start_year, args.end_year],
         "climatology": [args.clim_start, args.clim_end],
         "monthly_nlead": args.monthly_nlead,
         "target_grid": {
@@ -554,6 +712,11 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--dask-workers must be positive.")
     if args.e3sm_nens < 1 or args.smyle_nens < 1:
         raise ValueError("Ensemble sizes must be positive.")
+    if "nmme" in args.sources:
+        if not Path(args.nmme_root).is_dir():
+            raise FileNotFoundError(f"--nmme-root does not exist: {args.nmme_root}")
+        if not args.nmme_models:
+            raise ValueError("--nmme-models is required when --sources includes nmme.")
     if args.eof_bootstrap_iterations < 0:
         raise ValueError("--eof-bootstrap-iterations must be nonnegative.")
     if not 0 < args.eof_bootstrap_confidence < 1:
@@ -584,8 +747,101 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--legacy-nao-layout only supports --modes NAO.")
 
 
-def main() -> None:
-    args = core.parse_args()
+def configured_mode_settings(
+    args: argparse.Namespace,
+) -> dict[str, dict[str, object]]:
+    """Return mode settings with the run's observation contracts applied."""
+    settings_by_mode = {
+        mode: modes_analysis.mode_settings(mode) for mode in args.modes
+    }
+    for settings in settings_by_mode.values():
+        if settings["field"] == "PSL":
+            settings["obs_product"] = args.psl_obs_product
+            settings["obs_var"] = args.psl_obs_var
+        else:
+            settings["obs_product"] = args.ts_obs_product
+            settings["obs_var"] = args.ts_obs_var
+        settings["obs_years"] = [args.obs_start_year, args.obs_end_year]
+        settings["eof_reference_years"] = [
+            args.eof_reference_start_year,
+            args.eof_reference_end_year,
+        ]
+    return settings_by_mode
+
+
+def expected_product_issues(
+    args: argparse.Namespace,
+    *,
+    allow_year_superset: bool = False,
+) -> list[str]:
+    """Return missing or incompatible products for a configured runner call."""
+    products = expected_products(args)
+    issues: list[str] = []
+    for details in products.values():
+        for path, attribute, signature in (
+            (Path(details["field"]), "field_configuration", details["field_configuration"]),
+            (Path(details["index"]), "index_configuration", details["index_configuration"]),
+        ):
+            if not path.is_file():
+                issues.append(f"missing {path}")
+            elif not cached_product_matches(
+                path,
+                attribute,
+                signature,
+                allow_year_superset=allow_year_superset,
+            ):
+                issues.append(f"incompatible {path}")
+    return issues
+
+
+def expected_products(args: argparse.Namespace) -> dict[str, dict[str, str]]:
+    """Describe the products and signatures expected from one configured call."""
+    args.sources = list(dict.fromkeys(
+        "obs" if source == "era5" else source for source in args.sources
+    ))
+    args.modes = list(dict.fromkeys(mode.upper() for mode in args.modes))
+    validate_args(args)
+    products: dict[str, dict[str, str]] = {}
+    settings_by_mode = configured_mode_settings(args)
+    sources = [source for source in modes_analysis.MODEL_SOURCES if source in args.sources]
+    for mode, settings in settings_by_mode.items():
+        product_specs: list[tuple[str, int | None]] = []
+        if "obs" in args.sources or sources:
+            product_specs.append(("obs", None))
+        product_specs.extend(
+            (source, month) for source in sources for month in args.init_months
+        )
+        for source, init_month in product_specs:
+            output_source = (
+                str(args.e3sm_cache_tag) if source == "e3sm" else source
+            )
+            field_path, index_path = modes_analysis.product_paths(
+                Path(args.outdir), mode, output_source, init_month,
+                modes_analysis.grid_token(args.target_dlat, args.target_dlon),
+                settings, args.legacy_nao_layout,
+            )
+            key = (
+                "era5" if args.legacy_nao_layout and source == "obs"
+                else f"{output_source}_init{init_month:02d}"
+                if args.legacy_nao_layout
+                else f"{mode}:reference" if source == "obs"
+                else f"{mode}:{output_source}_init{init_month:02d}"
+            )
+            products[key] = {
+                "field": str(field_path),
+                "index": str(index_path),
+                "field_configuration": configuration_signature(
+                    source, settings, args, include_mode=False
+                ),
+                "index_configuration": configuration_signature(
+                    source, settings, args, include_mode=True
+                ),
+            }
+    return products
+
+
+def run(args: argparse.Namespace) -> Path | None:
+    """Run preprocessing for an already parsed, programmatic configuration."""
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
@@ -596,23 +852,11 @@ def main() -> None:
     args.modes = list(dict.fromkeys(mode.upper() for mode in args.modes))
     validate_args(args)
 
-    destination_grid = core.regrid.make_latlon_grid(
+    destination_grid = modes_analysis.regrid.make_latlon_grid(
         dlat=args.target_dlat, dlon=args.target_dlon
     )
-    station_definition = core.StationNaoDefinition()
-    mode_configs = {mode: core.mode_settings(mode) for mode in args.modes}
-    for settings in mode_configs.values():
-        if settings["field"] == "PSL":
-            settings["obs_product"] = args.psl_obs_product
-            settings["obs_var"] = args.psl_obs_var
-        else:
-            settings["obs_product"] = args.ts_obs_product
-            settings["obs_var"] = args.ts_obs_var
-        settings["obs_years"] = [args.obs_start_year, args.obs_end_year]
-        settings["eof_reference_years"] = [
-            getattr(args, "eof_reference_start_year", args.obs_start_year),
-            getattr(args, "eof_reference_end_year", args.obs_end_year),
-        ]
+    station_definition = modes_analysis.StationNaoDefinition()
+    mode_configs = configured_mode_settings(args)
     LOG.info("Modes: %s", ", ".join(args.modes))
     LOG.info("Sources: %s", ", ".join(args.sources))
     LOG.info("Output: %s", args.outdir)
@@ -629,11 +873,11 @@ def main() -> None:
         for mode, settings in mode_configs.items():
             references: dict[int, dict[str, object]] | None = None
             if "obs" in args.sources or any(
-                source in args.sources for source in core.MODEL_SOURCES
+                source in args.sources for source in modes_analysis.MODEL_SOURCES
             ):
-                field_path, _ = core.product_paths(
+                field_path, _ = modes_analysis.product_paths(
                     Path(args.outdir), mode, "obs", None,
-                    core.grid_token(args.target_dlat, args.target_dlon),
+                    modes_analysis.grid_token(args.target_dlat, args.target_dlon),
                     settings, args.legacy_nao_layout,
                 )
                 product, references = process_one(
@@ -645,13 +889,18 @@ def main() -> None:
                 key = "era5" if args.legacy_nao_layout else f"{mode}:reference"
                 products[key] = product
 
-            for source in core.MODEL_SOURCES:
+            for source in modes_analysis.MODEL_SOURCES:
                 if source not in args.sources:
                     continue
                 for init_month in args.init_months:
-                    field_path, _ = core.product_paths(
-                        Path(args.outdir), mode, source, init_month,
-                        core.grid_token(args.target_dlat, args.target_dlon),
+                    output_source = (
+                        str(getattr(args, "e3sm_cache_tag", "e3sm"))
+                        if source == "e3sm"
+                        else source
+                    )
+                    field_path, _ = modes_analysis.product_paths(
+                        Path(args.outdir), mode, output_source, init_month,
+                        modes_analysis.grid_token(args.target_dlat, args.target_dlon),
                         settings, args.legacy_nao_layout,
                     )
                     product, references = process_one(
@@ -661,17 +910,23 @@ def main() -> None:
                     )
                     materialized_fields.add(str(field_path))
                     key = (
-                        f"{source}_init{init_month:02d}"
+                        f"{output_source}_init{init_month:02d}"
                         if args.legacy_nao_layout
-                        else f"{mode}:{source}_init{init_month:02d}"
+                        else f"{mode}:{output_source}_init{init_month:02d}"
                     )
                     products[key] = product
 
     if args.dry_run:
         LOG.info("Dry run complete; no manifest was written.")
-        return
+        return None
     manifest = write_manifest(args, mode_configs, products, station_definition)
     LOG.info("Manifest: %s", manifest)
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> Path | None:
+    """Parse command-line arguments and run preprocessing."""
+    return run(modes_analysis.parse_args(argv))
 
 
 if __name__ == "__main__":

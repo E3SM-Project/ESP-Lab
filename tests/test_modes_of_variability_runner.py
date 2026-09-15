@@ -5,13 +5,15 @@ from pathlib import Path
 
 import numpy as np
 import xarray as xr
+import cftime
 
-from workflows import modes_of_variability_core as core
+from workflows.modes_of_variability import analysis as modes_analysis
 from scripts.run_process_modes_of_variability import (
     add_skill_lead_subset,
     cached_product_matches,
     configuration_signature,
     validate_args,
+    write_product,
     write_manifest,
 )
 
@@ -25,7 +27,7 @@ def _args(**overrides):
         "eof_reference_start_year": 1980,
         "eof_reference_end_year": 2018,
         "eof_reference_source": "obs",
-        "clim_start": 1980,
+        "clim_start": 1981,
         "clim_end": 2010,
         "init_months": [5, 11],
         "monthly_nlead": 24,
@@ -41,6 +43,13 @@ def _args(**overrides):
         "e3sm_engine": "netcdf4",
         "e3sm_grid": "180x360_aave",
         "smyle_benchmark_dir": "/data/smyle",
+        "nmme_root": "/data/nmme",
+        "nmme_models": ["model-a"],
+        "nmme_field": "auto",
+        "nmme_chunks": "",
+        "nmme_sst_land_mask": True,
+        "model_sst_land_mask": True,
+        "nmme_fixed_dir": "/data/fixed",
         "obs_dir": "/data/obs",
         "eof_scaling": True,
         "remove_domain_mean": True,
@@ -51,6 +60,7 @@ def _args(**overrides):
         "regression_confidence": 0.95,
         "legacy_nao_layout": False,
         "modes": ["NAO"],
+        "sources": ["obs"],
     }
     values.update(overrides)
     return Namespace(**values)
@@ -76,6 +86,285 @@ def test_configuration_signature_invalidates_changed_inputs():
         "e3sm", _settings(), _args(monthly_nlead=18), include_mode=True
     )
     assert baseline != changed
+
+
+def test_nmme_sst_mask_version_invalidates_only_temperature_fields():
+    pressure = json.loads(
+        configuration_signature("nmme", _settings(), _args(), include_mode=False)
+    )
+    temperature_settings = {
+        **_settings(),
+        "mode": "PDO",
+        "domain_mode": "PDO",
+        "field": "SST",
+        "frequency": "monthly",
+        "obs_product": "HadISST2",
+        "obs_var": "sst",
+    }
+    temperature = json.loads(
+        configuration_signature(
+            "nmme", temperature_settings, _args(), include_mode=False
+        )
+    )
+
+    assert "nmme_sst_mask_version" not in pressure
+    assert temperature["nmme_sst_mask_version"] == (
+        modes_analysis.nmme_access.NMME_SST_MASK_VERSION
+    )
+    assert temperature["nmme_sst_land_mask"] is True
+    assert temperature["nmme_fixed_dir"] == "/data/fixed"
+
+
+def test_temperature_index_signature_tracks_projection_mask_algorithm():
+    temperature_settings = {
+        **_settings(),
+        "mode": "AMO",
+        "domain_mode": "AMO",
+        "field": "SST",
+        "frequency": "monthly",
+        "obs_product": "HadISST2",
+        "obs_var": "sst",
+    }
+    signature = json.loads(
+        configuration_signature(
+            "smyle", temperature_settings, _args(), include_mode=True
+        )
+    )
+
+    assert signature["fixed_basis_projection_mask_version"] == (
+        modes_analysis.FIXED_BASIS_PROJECTION_MASK_VERSION
+    )
+
+
+def test_nmme_chunk_choice_does_not_invalidate_products():
+    native = configuration_signature(
+        "nmme", _settings(), _args(nmme_chunks=""), include_mode=False
+    )
+    custom = configuration_signature(
+        "nmme",
+        _settings(),
+        _args(nmme_chunks="S:1,L:1,Y:45,X:90"),
+        include_mode=False,
+    )
+
+    assert native == custom
+
+
+def test_cached_product_accepts_legacy_nmme_chunk_signature(tmp_path):
+    expected = configuration_signature(
+        "nmme", _settings(), _args(), include_mode=False
+    )
+    legacy_payload = json.loads(expected)
+    legacy_payload["nmme_chunks"] = "S:12,L:12,Y:45,X:72"
+    path = tmp_path / "legacy-nmme-field.nc"
+    xr.Dataset(
+        {"value": ("x", [1.0])},
+        attrs={"field_configuration": json.dumps(legacy_payload)},
+    ).to_netcdf(path)
+
+    assert cached_product_matches(path, "field_configuration", expected)
+
+
+def test_cached_product_option_accepts_only_an_enclosing_year_range(tmp_path):
+    expected = configuration_signature(
+        "smyle", _settings(), _args(end_year=2011), include_mode=False
+    )
+    superset_payload = json.loads(expected)
+    superset_payload["years"] = [1980, 2018]
+    path = tmp_path / "longer-cache.nc"
+    xr.Dataset(
+        {"value": ("x", [1.0])},
+        attrs={"field_configuration": json.dumps(superset_payload)},
+    ).to_netcdf(path)
+
+    assert not cached_product_matches(path, "field_configuration", expected)
+    assert cached_product_matches(
+        path,
+        "field_configuration",
+        expected,
+        allow_year_superset=True,
+    )
+
+    missing_payload = json.loads(expected)
+    missing_payload["years"] = [1981, 2018]
+    xr.Dataset(
+        {"value": ("x", [1.0])},
+        attrs={"field_configuration": json.dumps(missing_payload)},
+    ).to_netcdf(path)
+    assert not cached_product_matches(
+        path,
+        "field_configuration",
+        expected,
+        allow_year_superset=True,
+    )
+
+
+def test_cached_smyle_product_accepts_legacy_benchmark_layout(tmp_path):
+    expected = configuration_signature(
+        "smyle", _settings(), _args(), include_mode=False
+    )
+    expected_payload = json.loads(expected)
+    expected_payload["benchmark_inputs"] = [
+        {
+            "init_month": 5,
+            "path": "/data/smyle/leadtime_acc/inputs/atm/PSL/file.nc",
+            "size": 123,
+            "mtime_ns": 456,
+        }
+    ]
+    legacy_payload = json.loads(json.dumps(expected_payload))
+    legacy_payload["benchmark_inputs"][0]["path"] = (
+        "/data/smyle/leadtime_acc/inputs/PSL/file.nc"
+    )
+    path = tmp_path / "legacy-smyle-field.nc"
+    xr.Dataset(
+        {"value": ("x", [1.0])},
+        attrs={"field_configuration": json.dumps(legacy_payload)},
+    ).to_netcdf(path)
+
+    assert cached_product_matches(
+        path,
+        "field_configuration",
+        json.dumps(expected_payload, sort_keys=True, separators=(",", ":")),
+    )
+
+
+def test_nmme_products_use_canonical_uppercase_directory(tmp_path):
+    settings = {
+        **_settings(),
+        "mode": "PDO",
+        "field": "SST",
+        "frequency": "monthly",
+    }
+
+    field_path, index_path = modes_analysis.product_paths(
+        tmp_path,
+        "PDO",
+        "nmme",
+        2,
+        "2p5x2p5deg",
+        settings,
+        False,
+    )
+
+    expected_root = tmp_path / "NMME" / "modes_variability"
+    assert field_path.parent == expected_root / "fields"
+    assert index_path.parent == expected_root / "modes" / "pdo" / "indices"
+    assert field_path.name.startswith("nmme_init02_")
+
+
+def test_nmme_fixed_fields_live_under_canonical_nmme_directory():
+    assert modes_analysis.NMME_FIXED_DIR == (
+        modes_analysis.S2D_DIAG_ROOT / "NMME" / "fixed"
+    )
+
+
+def test_nmme_fields_are_materialized_one_model_at_a_time(monkeypatch):
+    calls = []
+
+    def fake_nmme_field_dataset(init_month, settings, args):
+        model = args.nmme_models[0]
+        calls.append(list(args.nmme_models))
+        years = np.array([2000, 2001])
+        values = np.full((2, 1, 1, 2, 2), len(calls), dtype="float32")
+        valid_time = xr.DataArray(
+            np.array(
+                [[cftime.DatetimeNoLeap(int(year), init_month, 15)] for year in years],
+                dtype=object,
+            ),
+            dims=("Y", "L"),
+            coords={"Y": years, "L": [1]},
+        )
+        return xr.Dataset(
+            {
+                "SST": xr.DataArray(
+                    values,
+                    dims=("Y", "L", "M", "lat", "lon"),
+                    coords={
+                        "Y": years,
+                        "L": [1],
+                        "M": [f"{model}:M001"],
+                        "lat": [-1.0, 1.0],
+                        "lon": [0.0, 2.0],
+                    },
+                    attrs={"units": "degC"},
+                ),
+                "time": valid_time,
+            }
+        )
+
+    class IdentityRegridder:
+        def __call__(self, dataset):
+            return dataset
+
+    monkeypatch.setattr(modes_analysis, "nmme_field_dataset", fake_nmme_field_dataset)
+    monkeypatch.setattr(
+        modes_analysis.regrid,
+        "make_regridder",
+        lambda *args, **kwargs: IdentityRegridder(),
+    )
+
+    settings = {
+        **_settings(),
+        "mode": "PDO",
+        "field": "SST",
+        "archive_field": "TS",
+        "frequency": "monthly",
+    }
+    args = _args(
+        start_year=2000,
+        end_year=2001,
+        clim_start=2000,
+        clim_end=2001,
+        monthly_nlead=1,
+        nmme_models=["model-a", "model-b"],
+    )
+    destination = xr.Dataset(coords={"lat": [-1.0, 1.0], "lon": [0.0, 2.0]})
+
+    result = modes_analysis.model_field_dataset("nmme", 5, settings, args, destination)
+
+    assert calls == [["model-a"], ["model-b"]]
+    assert list(result.M.values) == ["model-a:M001", "model-b:M001"]
+    assert result["SST"].dtype == np.float32
+
+
+def test_reference_ocean_mask_accepts_cli_resolution_tokens(monkeypatch):
+    requested = []
+
+    class FakeLand:
+        def mask(self, lon, lat):
+            return xr.DataArray(
+                np.full((lat.size, lon.size), np.nan),
+                dims=("lat", "lon"),
+                coords={"lat": lat, "lon": lon},
+            )
+
+    class FakeNaturalEarth:
+        def __getattr__(self, name):
+            requested.append(name)
+            return FakeLand()
+
+    class FakeDefinedRegions:
+        natural_earth_v5_0_0 = FakeNaturalEarth()
+
+    class FakeRegionmask:
+        defined_regions = FakeDefinedRegions()
+
+    monkeypatch.setitem(__import__("sys").modules, "regionmask", FakeRegionmask())
+    data = xr.DataArray(
+        np.ones((2, 2, 2)),
+        dims=("time", "lat", "lon"),
+        coords={"time": [0, 1], "lat": [-1.0, 1.0], "lon": [0.0, 2.0]},
+    )
+
+    for resolution in ("110m", "50m", "10m"):
+        mask = modes_analysis.generate_reference_ocean_mask(
+            data,
+            natural_earth_resolution=resolution,
+        )
+        assert bool(mask.all())
+
+    assert requested == ["land_110", "land_50", "land_10"]
 
 
 def test_add_skill_lead_subset_keeps_full_monthly_leads():
@@ -159,7 +448,7 @@ def test_atomic_to_netcdf_uses_independent_temporary_files(tmp_path):
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = [
-            executor.submit(core.atomic_to_netcdf, FakeDataset(), destination)
+            executor.submit(modes_analysis.atomic_to_netcdf, FakeDataset(), destination)
             for _ in range(4)
         ]
         for future in futures:
@@ -176,7 +465,7 @@ def test_manifest_merge_preserves_parallel_task_products(tmp_path):
         sources=["obs", "e3sm", "smyle"],
         merge_manifest=True,
     )
-    station = core.StationNaoDefinition()
+    station = modes_analysis.StationNaoDefinition()
     nao = _settings()
     pdo = {
         **_settings(),
@@ -225,10 +514,12 @@ def test_eof_analysis_retries_svd_nonconvergence(monkeypatch):
     def failing_numpy_svd(*args, **kwargs):
         raise np.linalg.LinAlgError("SVD did not converge")
 
-    monkeypatch.setattr(core, "eof_analysis_get_variance_mode", fake_eof_analysis)
-    monkeypatch.setattr(core, "_NUMPY_SVD", failing_numpy_svd)
+    monkeypatch.setattr(
+        modes_analysis, "eof_analysis_get_variance_mode", fake_eof_analysis
+    )
+    monkeypatch.setattr(modes_analysis, "_NUMPY_SVD", failing_numpy_svd)
 
-    result = core.eof_analysis_with_svd_fallback()
+    result = modes_analysis.eof_analysis_with_svd_fallback()
 
     assert len(attempts) == 2
     np.testing.assert_allclose(result, [1.0, 1.0])
@@ -250,9 +541,84 @@ def test_eof_ready_dataset_applies_complete_case_spatial_mask():
         name="mode_field",
     )
 
-    result = core.eof_ready_dataset(field.to_dataset(), "mode_field")
+    result = modes_analysis.eof_ready_dataset(field.to_dataset(), "mode_field")
 
     assert result["mode_field"].sel(lon=0.0).notnull().all()
     assert result["mode_field"].sel(lon=1.0).isnull().all()
     assert result["mode_field"].sel(lon=2.0).isnull().all()
     assert result["mode_field"].sel(lon=3.0).notnull().all()
+
+
+def test_fixed_basis_projection_field_matches_reference_mask():
+    field = xr.DataArray(
+        [
+            [[1.0, np.nan, 9.0]],
+            [[2.0, np.nan, 8.0]],
+        ],
+        dims=("time", "lat", "lon"),
+        coords={"time": [0, 1], "lat": [30.0], "lon": [0.0, 2.5, 5.0]},
+        name="mode_field",
+    )
+    reference_mask = xr.DataArray(
+        [[True, True, False]],
+        dims=("lat", "lon"),
+        coords={"lat": [30.0], "lon": [0.0, 2.5, 5.0]},
+    )
+
+    result = modes_analysis.fixed_basis_projection_field(
+        field,
+        reference_mask,
+        mode="AMO",
+        lead=1,
+    )
+
+    np.testing.assert_allclose(result.sel(lon=0.0).squeeze(), [1.0, 2.0])
+    np.testing.assert_allclose(result.sel(lon=2.5).squeeze(), [0.0, 0.0])
+    assert result.sel(lon=5.0).isnull().all()
+    assert result.attrs["projection_missing_values_filled"] == 2
+    assert result.attrs["projection_grid_points_filled"] == 1
+
+
+def test_regression_pattern_preserves_spatial_missing_mask():
+    field = xr.DataArray(
+        [
+            [[1.0, np.nan]],
+            [[2.0, np.nan]],
+            [[4.0, np.nan]],
+        ],
+        dims=("time", "lat", "lon"),
+        coords={"time": [0, 1, 2], "lat": [30.0], "lon": [0.0, 2.5]},
+    )
+    pc = xr.DataArray([0.0, 1.0, 2.0], dims="time", coords={"time": field.time})
+
+    result = modes_analysis.regression_pattern_from_projected_pc(field, pc)
+
+    assert np.isfinite(result["mode_regression_pattern"].sel(lon=0.0))
+    assert np.isnan(result["mode_regression_pattern"].sel(lon=2.5))
+
+
+def test_write_product_rejects_all_nan_mode_index(tmp_path, monkeypatch):
+    dataset = xr.Dataset(
+        {
+            "mode_index": (("Y", "L", "M"), np.full((2, 1, 1), np.nan)),
+        },
+        coords={"Y": [2000, 2001], "L": [1], "M": [1]},
+    )
+    monkeypatch.setattr(
+        modes_analysis, "validate_spatial_coordinates", lambda *_: None
+    )
+
+    try:
+        write_product(
+            dataset,
+            tmp_path / "invalid.nc",
+            "smyle",
+            _settings(),
+            _args(),
+            modes_analysis.StationNaoDefinition(),
+            "index",
+        )
+    except ValueError as error:
+        assert "contains no finite values" in str(error)
+    else:
+        raise AssertionError("Expected an all-NaN mode index to be rejected.")

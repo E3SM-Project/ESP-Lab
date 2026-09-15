@@ -1,26 +1,18 @@
 """
-This module provides utilities to assist in statistics calculations related
-to SMYLE analysis. Functions provide tools to perform linear detrending along
-a particular axis, determine skill metrics based on model and observation
-DataArrays, and generate a distribution of skill scores using a smaller
-ensemble member size.
+This module provides utilities to assist in statistics calculations for E3SM
+subseasonal-to-decadal (S2D) ensemble analysis. Functions provide tools to
+perform linear detrending, determine skill metrics based on model and
+observation DataArrays, and generate a distribution of skill scores using
+a smaller ensemble member size.
 
 Authors
 -------
-    - Steve Yeager
-    - Elizabeth Maroon
-
-Use
----
-    Users wishing to utilize these tools may do so by importing
-    various functions, for example:
-    ::
-        from esp-tools.utils.stat_utils import cor_ci_bootyears
+- Steve Yeager
+- Elizabeth Maroon
 
 Dependencies
 ------------
-    The user must have an activated conda environment which includes
-    xarray, numpy, sys, cftime, and xskillscore.
+Requires xarray, numpy, sys, cftime, and xskillscore.
 """
 
 import xarray as xr
@@ -47,6 +39,26 @@ def _climatology_mean_by_year(da, time_name, climy0, climy1):
     y1 = _year_from_climatology_bound(climy1)
     years = da[time_name].dt.year
     return da.where((years >= y0) & (years <= y1), drop=True).mean(time_name)
+
+
+def _deduplicate_index(da, dim):
+    """Collapse duplicate coordinate labels along dim before xarray alignment."""
+    if dim not in da.dims or dim not in da.coords:
+        return da
+    index = da.get_index(dim)
+    if index.is_unique:
+        return da
+    return da.groupby(dim).mean(dim)
+
+
+def _single_chunk_core_dim(da, dim):
+    """Ensure Dask-backed xarray objects have one chunk along a core dim."""
+    if dim not in da.dims or da.chunks is None:
+        return da
+    axis = da.get_axis_num(dim)
+    if len(da.chunks[axis]) <= 1:
+        return da
+    return da.chunk({dim: -1})
 
 
 def cor_ci_bootyears(ts1, ts2, seed=None, nboots=1000, conf=95):
@@ -177,6 +189,8 @@ def leadtime_skill_seas(mod_da, mod_time, obs_da, detrend=False):
         obs_ts = obs_da.sel(season=seasons[ens_time_month]).rename({'year': 'time'})
         ens_ts = ens_ts.assign_coords(time=("time", ens_time_year))
         a, b = xr.align(ens_ts, obs_ts)
+        a = _single_chunk_core_dim(a, 'time')
+        b = _single_chunk_core_dim(b, 'time')
         # perform linear detrending if detrend is set to True
         if detrend:
             a = detrend_linear(a, 'time')
@@ -269,6 +283,8 @@ def leadtime_skill_seas_resamp(mod_da, mod_time, obs_da, sampsize, N, detrend=Fa
             obs_ts = obs_da.sel(season=seasons[ens_time_month]).rename({'year': 'time'})
             ens_ts = ens_ts.assign_coords(time=("time", ens_time_year))
             a, b = xr.align(ens_ts, obs_ts)
+            a = _single_chunk_core_dim(a, 'time')
+            b = _single_chunk_core_dim(b, 'time')
             # perform linear detrending if detrend is set to True
             if detrend:
                 a = detrend_linear(a, 'time')
@@ -391,6 +407,8 @@ def compute_skill_annual(mod_da,mod_time,obs_da,nleadavg=1,nleads=1,resamp=0,det
         ens_time_year = mod_time.isel(L=leadisel).mean('L')
         ens_ts = ens_ts.assign_coords(time=("time",ens_time_year.data))
         a,b = xr.align(ens_ts,obs_ts)
+        a = _single_chunk_core_dim(a,'time')
+        b = _single_chunk_core_dim(b,'time')
         b = b - b.mean('time')
         if detrend:
                 a = detrend_linear(a,'time')
@@ -427,7 +445,20 @@ def compute_skill_annual(mod_da,mod_time,obs_da,nleadavg=1,nleads=1,resamp=0,det
     s2t  = xr.concat(s2t_list,lvalsda)
     return xr.Dataset({'corr':corr,'pval':pval,'rmse':rmse,'msss':msss,'rpc':rpc,'sig_obs':sigo,'sig_sig':sigs,'sig_tot':sigt,'s2t':s2t})
 
-def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleadavg=1,nleads=1,resamp=0,detrend=False,monthly=False, is_anomaly=False):
+def compute_skill_seasonal(
+    mod_da,
+    mod_time,
+    obs_da,
+    climy0=None,
+    climy1=None,
+    nleadavg=1,
+    nleads=1,
+    resamp=0,
+    detrend=False,
+    monthly=False,
+    is_anomaly=False,
+    target_years_by_lead=None,
+):
     """
     Computes a suite of deterministic skill metrics given two DataArrays
     corresponding to model and observations, which must share the same
@@ -460,6 +491,11 @@ def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleada
         instead of each lead season)
     is_anomaly : bool (optional)
         If True, assumes obs_da is already anomaly data and skips climo removal. Default False.
+    target_years_by_lead : mapping, optional
+        Explicit target-year cohort for each lead coordinate. When supplied,
+        model and observation samples are restricted to these years after
+        time alignment. This supports fair multi-model comparisons using an
+        identical valid cohort separately for every initialization and lead.
 
     Returns
     -------
@@ -468,6 +504,8 @@ def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleada
     """
     corr_list = []; pval_list = []; rmse_list = []; msss_list = []; rpc_list = []
     sigobs_list = []; sigsig_list = []; sigtot_list = []; s2t_list = []
+    sample_count_list = []; valid_sample_count_list = []
+    target_start_list = []; target_end_list = []
     
     # convert L to leadtime values:
     if (monthly):
@@ -481,6 +519,7 @@ def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleada
         ens_time_year = mod_time.isel(L=leadisel).mean('L').dt.year
         ens_time_month = mod_time.isel(L=leadisel).mean('L').dt.month.data[0]
         ens_ts = ens_ts.assign_coords(time=("time",ens_time_year.data))
+        ens_ts = _deduplicate_index(ens_ts, 'time')
         obsisel = obs_da.time.dt.month==ens_time_month
         obs_seas = obs_da.isel(time=obsisel)
         if not is_anomaly:
@@ -488,13 +527,38 @@ def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleada
                 raise ValueError("climy0 and climy1 must be provided if is_anomaly=False")
             obs_seas = obs_seas - _climatology_mean_by_year(obs_seas, 'time', climy0, climy1)
         obs_seas = obs_seas.assign_coords(time=("time",obs_seas.time.dt.year.data))
+        obs_seas = _deduplicate_index(obs_seas, 'time')
         if (nleadavg>1):
             obs_seas = obs_seas.rolling(time=nleadavg,min_periods=nleadavg, center=True).mean().dropna('time',how='all')
         a,b = xr.align(ens_ts,obs_seas)
+        lead_value = int(lvalsda.values[i])
+        if target_years_by_lead is not None:
+            requested_years = np.asarray(
+                target_years_by_lead.get(lead_value, []), dtype=int
+            )
+            available_years = np.intersect1d(a.time.values, b.time.values)
+            selected_years = np.intersect1d(available_years, requested_years)
+            a = a.sel(time=selected_years)
+            b = b.sel(time=selected_years)
+        else:
+            selected_years = np.asarray(a.time.values, dtype=int)
+        if selected_years.size < 3:
+            raise ValueError(
+                f"Lead {lead_value} has only {selected_years.size} common "
+                "target-year samples; at least three are required."
+            )
+        a = _single_chunk_core_dim(a,'time')
+        b = _single_chunk_core_dim(b,'time')
         if detrend:
                 a = detrend_linear(a,'time')
                 b = detrend_linear(b,'time')
         amean = a.mean('M')
+        # The scalar sample_count records the requested global target-year
+        # cohort. Keep the paired count at every grid cell as well so local
+        # missing data are visible in the cached result.
+        valid_sample_count_list.append(
+            (amean.notnull() & b.notnull()).sum('time').astype('int16')
+        )
         sigobs = b.std('time')
         sigsig = amean.std('time')
         if (resamp>0):
@@ -515,6 +579,9 @@ def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleada
         sigsig_list.append(sigsig)
         sigtot_list.append(sigtot)
         s2t_list.append(sigsig/sigtot)
+        sample_count_list.append(int(selected_years.size))
+        target_start_list.append(int(selected_years.min()))
+        target_end_list.append(int(selected_years.max()))
     corr = xr.concat(corr_list,lvalsda)
     pval = xr.concat(pval_list,lvalsda)
     rmse = xr.concat(rmse_list,lvalsda)
@@ -524,7 +591,92 @@ def compute_skill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,nleada
     sigs = xr.concat(sigsig_list,lvalsda)
     sigt = xr.concat(sigtot_list,lvalsda)
     s2t  = xr.concat(s2t_list,lvalsda)
-    return xr.Dataset({'corr':corr,'pval':pval,'rmse':rmse,'msss':msss,'rpc':rpc,'sig_obs':sigo,'sig_sig':sigs,'sig_tot':sigt,'s2t':s2t})
+    valid_n = xr.concat(valid_sample_count_list,lvalsda)
+    return xr.Dataset({
+        'corr':corr,
+        'pval':pval,
+        'rmse':rmse,
+        'msss':msss,
+        'rpc':rpc,
+        'sig_obs':sigo,
+        'sig_sig':sigs,
+        'sig_tot':sigt,
+        's2t':s2t,
+        'sample_count': xr.DataArray(sample_count_list, dims='L', coords={'L': lvalsda}),
+        'valid_sample_count': valid_n,
+        'target_year_start': xr.DataArray(target_start_list, dims='L', coords={'L': lvalsda}),
+        'target_year_end': xr.DataArray(target_end_list, dims='L', coords={'L': lvalsda}),
+    })
+
+
+def common_valid_target_years_seasonal(
+    model_indices,
+    model_times,
+    obs_da,
+    leads,
+    *,
+    require_all_members=False,
+):
+    """Return identical valid target-year cohorts for several hindcasts.
+
+    The intersection is computed independently for each lead. A model year is
+    valid when its verification time is defined and its ensemble index has
+    finite data. By default at least one member must be present; with
+    ``require_all_members=True`` every member must contain some finite spatial
+    data. The matching observed month/year must also contain a finite value.
+    """
+    if set(model_indices) != set(model_times):
+        raise ValueError("model_indices and model_times must have identical keys.")
+    if not model_indices:
+        raise ValueError("At least one model is required for sample intersection.")
+
+    obs_year = np.asarray(obs_da.time.dt.year.values, dtype=int)
+    obs_month = np.asarray(obs_da.time.dt.month.values, dtype=int)
+    obs_finite = obs_da.notnull()
+    for dim in tuple(dim for dim in obs_finite.dims if dim != "time"):
+        obs_finite = obs_finite.any(dim)
+    obs_finite = np.asarray(obs_finite.values, dtype=bool)
+
+    result = {}
+    for lead in map(int, leads):
+        target_months = set()
+        common_years = None
+        for model in model_indices:
+            index = model_indices[model].sel(L=lead)
+            valid_time = model_times[model].sel(L=lead)
+            years = np.asarray(valid_time.dt.year.values, dtype=int)
+            months = np.asarray(valid_time.dt.month.values, dtype=int)
+            target_months.update(np.unique(months).tolist())
+
+            finite = index.notnull()
+            spatial_dims = tuple(
+                dim for dim in finite.dims if dim not in ("Y", "M")
+            )
+            if spatial_dims:
+                finite = finite.any(spatial_dims)
+            if "M" in finite.dims:
+                finite = (
+                    finite.all("M")
+                    if require_all_members
+                    else finite.any("M")
+                )
+            model_years = set(years[np.asarray(finite.values, dtype=bool)].tolist())
+            common_years = (
+                model_years if common_years is None else common_years & model_years
+            )
+
+        if len(target_months) != 1:
+            raise ValueError(
+                f"Lead {lead} has inconsistent target months across models: "
+                f"{sorted(target_months)}"
+            )
+        target_month = target_months.pop()
+        observed_years = set(
+            obs_year[(obs_month == target_month) & obs_finite].tolist()
+        )
+        selected = sorted((common_years or set()) & observed_years)
+        result[lead] = selected
+    return result
 
 
 def compute_skill_seasonal_batch(
@@ -580,6 +732,7 @@ def compute_skill_seasonal_batch(
         ens_time_year = mod_time.isel(L=leadisel).mean('L').dt.year
         ens_time_month = mod_time.isel(L=leadisel).mean('L').dt.month.data[0]
         ens_ts = ens_ts.assign_coords(time=("time",ens_time_year.data))
+        ens_ts = _deduplicate_index(ens_ts, 'time')
         obsisel = obs_da.time.dt.month==ens_time_month
         obs_seas = obs_da.isel(time=obsisel)
         if not is_anomaly:
@@ -587,9 +740,12 @@ def compute_skill_seasonal_batch(
                 raise ValueError("climy0 and climy1 must be provided if is_anomaly=False")
             obs_seas = obs_seas - _climatology_mean_by_year(obs_seas, 'time', climy0, climy1)
         obs_seas = obs_seas.assign_coords(time=("time",obs_seas.time.dt.year.data))
+        obs_seas = _deduplicate_index(obs_seas, 'time')
         if (nleadavg>1):
             obs_seas = obs_seas.rolling(time=nleadavg,min_periods=nleadavg, center=True).mean().dropna('time',how='all')
         a,b = xr.align(ens_ts,obs_seas)
+        a = _single_chunk_core_dim(a,'time')
+        b = _single_chunk_core_dim(b,'time')
         if detrend:
             a = detrend_linear(a,'time')
             b = detrend_linear(b,'time')
@@ -667,6 +823,7 @@ def prepare_skill_seasonal_lead(
     ens_ts = mod_da.isel(L=lead_index).rename({"Y": "time"})
     ens_time = mod_time.isel(L=lead_index)
     ens_ts = ens_ts.assign_coords(time=("time", ens_time.dt.year.data))
+    ens_ts = _deduplicate_index(ens_ts, "time")
 
     verification_month = ens_time.dt.month.data[0]
     obs_seas = obs_da.isel(time=obs_da.time.dt.month == verification_month)
@@ -681,8 +838,11 @@ def prepare_skill_seasonal_lead(
     obs_seas = obs_seas.assign_coords(
         time=("time", obs_seas.time.dt.year.data)
     )
+    obs_seas = _deduplicate_index(obs_seas, "time")
 
     model_aligned, obs_aligned = xr.align(ens_ts, obs_seas)
+    model_aligned = _single_chunk_core_dim(model_aligned, "time")
+    obs_aligned = _single_chunk_core_dim(obs_aligned, "time")
     if detrend:
         model_aligned = detrend_linear(model_aligned, "time")
         obs_aligned = detrend_linear(obs_aligned, "time")
@@ -797,6 +957,8 @@ def compute_resampskill_annual(mod_da,mod_time,obs_da,nleadavg=1,nleads=1,detren
             ens_time_year = mod_time.isel(L=lvals+i).mean('L').data
             ens_ts = ens_ts.assign_coords(time=("time",ens_time_year))
             a,b = xr.align(ens_ts,obs_ts)
+            a = _single_chunk_core_dim(a,'time')
+            b = _single_chunk_core_dim(b,'time')
             b = b - b.mean('time')
             if detrend:
                 a = detrend_linear(a,'time')
@@ -898,6 +1060,7 @@ def compute_resampskill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,
             ens_time_year = mod_time.isel(L=leadisel).mean('L').dt.year
             ens_time_month = mod_time.isel(L=leadisel).mean('L').dt.month.data[0]
             ens_ts = ens_ts.assign_coords(time=("time",ens_time_year.data))
+            ens_ts = _deduplicate_index(ens_ts, 'time')
             obsisel = obs_da.time.dt.month==ens_time_month
             obs_seas = obs_da.isel(time=obsisel)
             if not is_anomaly:
@@ -905,9 +1068,12 @@ def compute_resampskill_seasonal(mod_da,mod_time,obs_da,climy0=None,climy1=None,
                     raise ValueError("climy0 and climy1 must be provided if is_anomaly=False")
                 obs_seas = obs_seas - _climatology_mean_by_year(obs_seas, 'time', climy0, climy1)
             obs_seas = obs_seas.assign_coords(time=("time",obs_seas.time.dt.year.data))
+            obs_seas = _deduplicate_index(obs_seas, 'time')
             if (nleadavg>1):
                 obs_seas = obs_seas.rolling(time=nleadavg,min_periods=nleadavg, center=True).mean().dropna('time',how='all')
             a,b = xr.align(ens_ts,obs_seas)
+            a = _single_chunk_core_dim(a,'time')
+            b = _single_chunk_core_dim(b,'time')
             if detrend:
                 a = detrend_linear(a,'time')
                 b = detrend_linear(b,'time')
