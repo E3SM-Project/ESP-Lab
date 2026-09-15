@@ -82,6 +82,13 @@ def _infer_metric(filename: str) -> str:
     candidates = (
         "leadtime_drift",
         "global_teleconnection_patterns",
+        "correlation_reference_comparison",
+        "taylor_diagram",
+        "annual_block_evolution",
+        "normalized_change_scatter",
+        "normalized_change",
+        "normalized_rmse",
+        "anomaly_member_vs_mean",
         "multi_e3sm_rmse_skill_map_conus",
         "multi_e3sm_rmse_skill_diff",
         "multi_e3sm_rmse_skill_map",
@@ -104,6 +111,7 @@ def _infer_metric(filename: str) -> str:
         "lead_time_benchmark",
         "drift_climatology",
         "skill",
+        "summary",
     )
     return next((metric for metric in candidates if metric in stem), "workflow_figure")
 
@@ -118,6 +126,7 @@ def _infer_mode(filename: str) -> str:
             or f"_{mode_lower}_" in stem
             or stem.endswith(f"_{mode_lower}")
             or stem == f"fig_{mode_lower}"
+            or stem.startswith(f"teleconnection_{mode_lower}_")
         ):
             return mode
     for token, label in (
@@ -137,6 +146,15 @@ def _infer_mode(filename: str) -> str:
         ("tws", "TWS"),
         ("h2osno", "H2OSNO"),
         ("h2osoi", "H2OSOI"),
+        ("atlmdr", "ATLMDR"),
+        ("atlnino", "ATLNINO"),
+        ("oni", "ONI"),
+        ("roni", "RONI"),
+        ("pacwarmpool", "PACWARMPOOL"),
+        ("pacwrampool", "PACWARMPOOL"),
+        ("tna", "TNA"),
+        ("tsa", "TSA"),
+        ("tni", "TNI"),
     ):
         if token in stem:
             return label
@@ -145,8 +163,15 @@ def _infer_mode(filename: str) -> str:
 
 def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     """Map a figure to one of the major workflow diagnostic sections."""
-    stem = Path(filename).stem.lower()
+    path_obj = Path(filename)
+    stem = path_obj.stem.lower()
+    path_str = str(path_obj).lower()
     metric_lower = metric.lower()
+
+    if "initial_shock" in path_str or "shock" in stem:
+        return "INITIAL_SHOCK"
+    if path_str.startswith("teleconnections") or stem.startswith("teleconnection_"):
+        return "TELECONNECTIONS"
     if "eli" in stem or "eli" in metric_lower:
         return "ELI"
     if stem.startswith("fig_tc_") or "track_density" in stem:
@@ -179,12 +204,14 @@ def discover_workflow_figures(
     *,
     pattern: str = "fig_*",
     write_manifest: bool = False,
+    include_subdirs: bool = True,
 ) -> dict:
     """Catalog actual workflow figures in a directory.
 
-    Only files matching ``pattern`` with a supported image extension are
-    returned. Existing manifest metadata is retained for files that still
-    exist; stale entries are removed and missing entries are synthesized.
+    Files matching ``pattern`` at root, as well as figures in workflow subdirectories
+    when ``include_subdirs`` is True, are returned with a supported image extension.
+    Existing manifest metadata is retained for files that still exist; stale entries
+    are removed and missing entries are synthesized.
     """
     diag_dir = Path(diag_dir)
     if not diag_dir.is_dir():
@@ -204,22 +231,36 @@ def discover_workflow_figures(
         for entry in existing_manifest.get("figures", [])
         if entry.get("file")
     }
-    figure_paths = sorted(
+
+    figure_paths = []
+    # 1. Top-level matching pattern
+    figure_paths.extend(
         path
-        for path in diag_dir.glob(pattern)
+        for path in sorted(diag_dir.glob(pattern))
         if path.is_file() and path.suffix.lower() in FIGURE_EXTENSIONS
     )
+    # 2. Subdirectories
+    if include_subdirs:
+        for sub in sorted(diag_dir.iterdir()):
+            if sub.is_dir() and not sub.name.startswith((".", "_")):
+                for path in sorted(sub.glob("**/*")):
+                    if path.is_file() and path.suffix.lower() in FIGURE_EXTENSIONS:
+                        rel = path.relative_to(diag_dir)
+                        if not any(part.startswith((".", "_")) for part in rel.parts):
+                            if path not in figure_paths:
+                                figure_paths.append(path)
 
     figures = []
     for path in figure_paths:
-        entry = dict(metadata_by_file.get(path.name, {}))
-        entry.update({"file": path.name})
+        rel_file = path.relative_to(diag_dir).as_posix()
+        entry = dict(metadata_by_file.get(rel_file, metadata_by_file.get(path.name, {})))
+        entry.update({"file": rel_file})
         entry.setdefault("mode", _infer_mode(path.name))
         entry.setdefault("metric", _infer_metric(path.name))
-        entry.setdefault("title", _humanize_figure_name(path.name))
+        entry.setdefault("title", _humanize_figure_name(path.stem))
         entry.setdefault("caption", "Workflow-generated diagnostic figure.")
         entry["group"] = _infer_workflow_group(
-            path.name, entry["metric"], entry["mode"]
+            rel_file, entry["metric"], entry["mode"]
         )
         figures.append(entry)
 
@@ -252,14 +293,23 @@ def _make_gallery_web_readable(diag_dir: Path, manifest: dict) -> None:
     )
     diag_dir.chmod(diag_dir.stat().st_mode | directory_bits)
 
+    readable_bits = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+
     for entry in manifest.get("figures", []):
         filename = entry.get("file")
         if not filename:
             continue
         figure_path = diag_dir / filename
         if figure_path.is_file():
-            readable_bits = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+            parent_dir = figure_path.parent
+            if parent_dir != diag_dir and parent_dir.is_dir():
+                parent_dir.chmod(parent_dir.stat().st_mode | directory_bits)
             figure_path.chmod(figure_path.stat().st_mode | readable_bits)
+
+    for filename in ("figures.json", "index.html"):
+        path = diag_dir / filename
+        if path.is_file():
+            path.chmod(path.stat().st_mode | readable_bits)
 
 
 def generate_diagnostics_webpage(
@@ -268,6 +318,7 @@ def generate_diagnostics_webpage(
     discover_figures: bool = False,
     figure_pattern: str = "fig_*",
     make_web_readable: bool = True,
+    include_subdirs: bool = True,
 ) -> Path:
     """Generate an interactive HTML webpage for viewing diagnostics figures.
 
@@ -290,6 +341,8 @@ def generate_diagnostics_webpage(
     make_web_readable : bool, optional
         Make cataloged figures publicly readable and the gallery directory
         publicly traversable. Defaults to true.
+    include_subdirs : bool, optional
+        Discover workflow figures located in subdirectories. Defaults to true.
 
     Returns
     -------
@@ -308,7 +361,10 @@ def generate_diagnostics_webpage(
     manifest_path = diag_dir / "figures.json"
     if discover_figures:
         manifest_data = discover_workflow_figures(
-            diag_dir, pattern=figure_pattern, write_manifest=True
+            diag_dir,
+            pattern=figure_pattern,
+            write_manifest=True,
+            include_subdirs=include_subdirs,
         )
         if not manifest_data["figures"]:
             raise FileNotFoundError(
@@ -1671,12 +1727,14 @@ def _build_html_template(manifest: dict) -> str:
         const GROUP_LABELS = {
             "ALL": "All Figures",
             "LEAD_ACC": "Lead-time ACC",
-            "LEAD_DRIFT": "Lead-time Drift",
             "LEAD_RMSE": "Lead-time RMSE",
             "SST_INDEX": "SST Indices",
             "MOV": "Modes of Variability",
-            "TC": "Tropical Cyclones",
             "ELI": "ELI Diagnostics",
+            "INITIAL_SHOCK": "Initial Shock",
+            "TELECONNECTIONS": "Teleconnections",
+            "LEAD_DRIFT": "Lead-time Drift",
+            "TC": "Tropical Cyclones",
             "OTHER": "Other"
         };
 
@@ -1698,13 +1756,22 @@ def _build_html_template(manifest: dict) -> str:
             "DRIFT": "Drift climatology",
             "NMME_BENCHMARK": "NMME benchmark",
             "ELI_NINO34": "ELI vs Niño3.4",
+            "ERROR_INDEX": "RMSE/MAE index",
+            "SCATTER": "Scatter",
+            "EVOLUTION": "Evolution",
+            "ANOMALY": "Anomalies",
+            "CHANGE_MAP": "Change maps",
+            "TAYLOR_DIAGRAM": "Taylor diagrams",
+            "SUMMARY": "Summaries",
+            "CORRELATION_MAP": "Correlation maps",
             "OTHER": "Other"
         };
         const FIGURE_TYPE_ORDER = [
             "SKILL", "SKILL_MAP", "TIME_SERIES", "MODEL_COMPARISON",
             "DIFFERENCE", "EOF_PATTERNS", "TELECONNECTIONS", "PC_TIME_SERIES",
-            "METHOD_COMPARISON", "LEAD_TIME", "ENSO_REGRESSION", "TRACK_DENSITY",
-            "TRAJECTORIES", "DRIFT", "NMME_BENCHMARK", "ELI_NINO34", "OTHER"
+            "ERROR_INDEX", "SCATTER", "EVOLUTION", "ANOMALY", "CHANGE_MAP",
+            "TAYLOR_DIAGRAM", "SUMMARY", "CORRELATION_MAP",
+            "DRIFT", "ELI_NINO34", "NMME_BENCHMARK", "OTHER"
         ];
 
         // Bust browser image cache when figures are regenerated with the same filename.
@@ -1802,6 +1869,18 @@ def _build_html_template(manifest: dict) -> str:
                 if (metric.includes("time_series")) return "TIME_SERIES";
                 return "SKILL";
             }
+            if (fig.group === "INITIAL_SHOCK") {
+                if (file.includes("rmse") || file.includes("mae")) return "ERROR_INDEX";
+                if (file.includes("scatter")) return "SCATTER";
+                if (file.includes("evolution")) return "EVOLUTION";
+                if (file.includes("anomaly")) return "ANOMALY";
+                return "CHANGE_MAP";
+            }
+            if (fig.group === "TELECONNECTIONS") {
+                if (file.includes("taylor")) return "TAYLOR_DIAGRAM";
+                if (file.includes("summary")) return "SUMMARY";
+                return "CORRELATION_MAP";
+            }
             return "OTHER";
         }
 
@@ -1860,9 +1939,8 @@ def _build_html_template(manifest: dict) -> str:
                 counts[fig.group] = (counts[fig.group] || 0) + 1;
             });
 
-            // Follow the major section order used by the diagnostics workflow.
             const workflowOrder = [
-                "LEAD_ACC", "LEAD_RMSE", "LEAD_DRIFT", "SST_INDEX", "MOV", "TC", "ELI", "OTHER"
+                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "OTHER"
             ];
             const groups = Object.keys(counts)
                 .filter(g => g !== "ALL")
