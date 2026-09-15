@@ -1,29 +1,46 @@
-# Install esp-lab
+# Install ESP-Lab
 
-esp-lab can be installed in three ways:
+ESP-Lab can be installed in several ways depending on your computing environment:
 
-## pip
+## Development Version from Source (Recommended)
 
-Using the [pip](https://pypi.org/project/pip/) package manager:
+To install the latest development version supporting E3SM S2D diagnostics:
+
+```bash
+git clone -b e3sm-esp https://github.com/zhangshixuan1987/ESP-Lab.git
+cd ESP-Lab
+```
+
+### Option A: Create a Dedicated Conda Environment
+
+```bash
+conda env create --file environment.yml
+conda activate esp-lab
+pip install -e .
+```
+
+### Option B: Install into an Existing Conda Environment
+
+If you already maintain an analysis environment (such as `e3sm_analysis` on NERSC Perlmutter):
+
+```bash
+conda activate e3sm_analysis
+cd ESP-Lab
+pip install -e .
+```
+
+## Pip Installation
+
+ESP-Lab can also be installed from PyPI:
 
 ```bash
 python -m pip install esp-lab
 ```
 
-## conda
+## Conda Installation
 
-Using the [conda](https://conda.io/) package manager that comes with Anaconda/Miniconda:
+When released to conda-forge:
 
 ```bash
 conda install esp-lab --channel conda-forge
-```
-
-## Development version
-
-To install a development version from source:
-
-```bash
-git clone https://github.com/CESM-ESPWG/ESP-Lab.git
-cd ESP-Lab
-python -m pip install -e .
 ```
