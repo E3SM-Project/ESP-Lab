@@ -5,6 +5,7 @@ from pathlib import Path
 from esp_lab.diagnostics.web import (
     discover_workflow_figures,
     generate_diagnostics_webpage,
+    _infer_shortname_and_type,
 )
 
 
@@ -161,4 +162,72 @@ def test_discover_workflow_figures_recognizes_split_mov_figures(tmp_path):
     assert tele_nov["metric"] == "global_teleconnection_patterns"
     assert tele_nov["group"] == "MOV"
     assert tele_nov["title"] == "PNA Global Teleconnection Patterns Nov Init"
+
+
+def test_infer_shortname_and_type():
+    # LEAD_ACC
+    s, t = _infer_shortname_and_type("fig_leadtime_acc_skill_map_prect.png", "LEAD_ACC")
+    assert s == "PRECT"
+    assert t == "ACC Skill Map"
+
+    # LEAD_RMSE
+    s, t = _infer_shortname_and_type("fig_leadtime_rmse_compare_conus_prect.png", "LEAD_RMSE")
+    assert s == "PRECT"
+    assert t == "Compare (CONUS)"
+
+    # SST_INDEX
+    s, t = _infer_shortname_and_type("fig_sst_index_skill_nino34.png", "SST_INDEX")
+    assert s == "Niño3.4"
+    assert t == "ACC Skill"
+
+    # MOV
+    s, t = _infer_shortname_and_type("fig_nam_eof_patterns_year1.png", "MOV", mode="NAM")
+    assert s == "NAM"
+    assert t == "EOF Year 1"
+
+    # ELI
+    s, t = _infer_shortname_and_type("fig_eli_acc_nrmse_skill.png", "ELI")
+    assert s == "ELI Diagnostics"
+    assert t == "ACC / nRMSE Skill"
+
+    # INITIAL_SHOCK
+    s, t = _infer_shortname_and_type("fig_shock_normalized_change_scatter_seasonal_prect.png", "INITIAL_SHOCK")
+    assert s == "PRECT"
+    assert t == "Seasonal Scatter"
+
+    # TELECONNECTIONS
+    s, t = _infer_shortname_and_type("teleconnections/teleconnection_nino34_prect_corr_map.png", "TELECONNECTIONS")
+    assert s == "Niño3.4 · PRECT"
+    assert t == "Correlation Map"
+
+
+def test_discover_workflow_figures_assigns_shortname_and_type(tmp_path):
+    (tmp_path / "fig_leadtime_acc_skill_map_sst.png").touch()
+    (tmp_path / "fig_sst_index_skill_iod.png").touch()
+
+    manifest = discover_workflow_figures(tmp_path)
+    by_file = {fig["file"]: fig for fig in manifest["figures"]}
+
+    sst_acc = by_file["fig_leadtime_acc_skill_map_sst.png"]
+    assert sst_acc["shortname"] == "SST"
+    assert sst_acc["btn_type"] == "ACC Skill Map"
+
+    iod_fig = by_file["fig_sst_index_skill_iod.png"]
+    assert iod_fig["shortname"] == "IOD"
+    assert iod_fig["btn_type"] == "ACC Skill"
+
+
+def test_generate_webpage_contains_matrix_dashboard(tmp_path):
+    (tmp_path / "fig_leadtime_acc_skill_map_prect.png").touch()
+    output_html = generate_diagnostics_webpage(tmp_path, discover_figures=True)
+    content = output_html.read_text(encoding="utf-8")
+
+    # Check matrix view markup and scripts
+    assert "matrixDashboard" in content
+    assert "Quick Buttons View" in content
+    assert "bumpOutModal" in content
+    assert "renderMatrixView" in content
+    assert "renderCardsView" in content
+    assert "setViewMode" in content
+    assert "openLightboxForFigureByFile" in content
 
