@@ -6,23 +6,29 @@ data_access utility, but is adapted to E3SM directory-driven data
 organization, where data are stored under top-level initialization
 directories and ensemble subdirectories.
 
-Expected directory structure
-----------------------------
-<data_dir>/
-  <case_prefix>_<init_tag>/
-    EN00/
-      post/atm/180x360_aave/ts/monthly/2yr/{FIELD}_{start_yyyymm}_{end_yyyymm}.nc
-    EN01/
-      post/atm/180x360_aave/ts/monthly/2yr/{FIELD}_{start_yyyymm}_{end_yyyymm}.nc
-    ...
+Expected E3SM directory structure
+---------------------------------
+::
 
-Example top-level case directory
---------------------------------
-WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL_1980050100
+    <data_dir>/
+      <case_prefix>_<init_tag>/
+        EN00/
+          post/atm/180x360_aave/ts/monthly/2yr/{FIELD}_{start_yyyymm}_{end_yyyymm}.nc
+        EN01/
+          post/atm/180x360_aave/ts/monthly/2yr/{FIELD}_{start_yyyymm}_{end_yyyymm}.nc
+        ...
 
-Example file
-------------
-TREFHT_198005_198204.nc
+Example E3SM top-level case directory
+-------------------------------------
+::
+
+    WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL_1980050100
+
+Example E3SM file
+-----------------
+::
+
+    TREFHT_198005_198204.nc
 
 Notes
 -----
@@ -55,28 +61,30 @@ Notes
    safer than relying on exact absolute timestamps when comparing with
    observational datasets.
 
-Typical use
------------
-from esp_lab import data_access_e3sm as data_access
+Typical E3SM use
+----------------
+::
 
-field = "TREFHT"
-data_dir = "/pscratch/sd/z/zhan391/e3sm_project/E3SMv3_S2D"
-case_prefix = "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL"
-members = [f"EN{i:02d}" for i in range(10)]
-init_tags = data_access.build_init_tags(np.arange(1980, 2015), [5, 11])
+    from esp_lab import data_access_e3sm as data_access
 
-ds = data_access.get_monthly_data(
-    data_dir=data_dir,
-    case_prefix=case_prefix,
-    members=members,
-    init_tags=init_tags,
-    field=field,
-    nlead=24,
-    realm="atm",
-    grid="180x360_aave",
-    freq="monthly",
-    ts_split="2yr",
-)
+    field = "TREFHT"
+    data_dir = "/pscratch/sd/z/zhan391/e3sm_project/E3SMv3_S2D"
+    case_prefix = "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_JRA55_FOSIRL"
+    members = [f"EN{i:02d}" for i in range(10)]
+    init_tags = data_access.build_init_tags(np.arange(1980, 2015), [5, 11])
+
+    ds = data_access.get_monthly_data(
+        data_dir=data_dir,
+        case_prefix=case_prefix,
+        members=members,
+        init_tags=init_tags,
+        field=field,
+        nlead=24,
+        realm="atm",
+        grid="180x360_aave",
+        freq="monthly",
+        ts_split="2yr",
+    )
 """
 
 import re
@@ -406,6 +414,7 @@ def time_set_midmonth(ds: xr.Dataset, time_name: str) -> xr.Dataset:
     Return a copy of ds with monthly time on the represented month midpoint.
 
     The represented month is detected in this order:
+
     1. Time bounds lower edge, when bounds are present.
     2. The filename's represented start YYYYMM compared with the first
        timestamp month.
@@ -513,6 +522,44 @@ def preprocessor_monthly(ds0: xr.Dataset, nlead: int, field: str) -> xr.Dataset:
     #d0 = d0.chunk({"L": -1})
     d0 = d0.chunk({"L": min(12, d0.sizes["L"])}) 
     return d0
+
+
+def _verification_time_from_init_tags(
+    init_tags: Iterable[object],
+    leads: Iterable[object],
+) -> xr.DataArray:
+    """Construct deterministic no-leap verification dates for E3SM hindcasts."""
+    init_values = [str(value) for value in init_tags]
+    lead_values = [int(value) for value in leads]
+    values = []
+    for init_tag in init_values:
+        if len(init_tag) < 6 or not init_tag[:6].isdigit():
+            raise ValueError(f"Invalid E3SM initialization tag: {init_tag!r}")
+        init_year = int(init_tag[:4])
+        init_month = int(init_tag[4:6])
+        row = []
+        for lead in lead_values:
+            if lead < 1:
+                raise ValueError(f"E3SM lead values must be >= 1, got {lead}")
+            month_index = init_month - 1 + lead - 1
+            row.append(
+                cftime.DatetimeNoLeap(
+                    init_year + month_index // 12,
+                    month_index % 12 + 1,
+                    15,
+                )
+            )
+        values.append(row)
+    return xr.DataArray(
+        np.asarray(values, dtype=object),
+        dims=("Y", "L"),
+        coords={"Y": init_values, "L": lead_values},
+        name="time",
+        attrs={
+            "long_name": "forecast verification time",
+            "construction": "init_tag_plus_lead_v1",
+        },
+    )
 
 # Backward-compatible alias
 preprocessor = preprocessor_monthly
@@ -816,6 +863,7 @@ def get_monthly_data(
     verify_field_name: bool = True,
     verify_coverage: bool = False,
     engine: str = "netcdf4",
+    resolved_files: Optional[List[List[str]]] = None,
 ) -> xr.Dataset:
     """
     Return a dask-backed xarray dataset arranged as (init, lead, member, ...).
@@ -858,6 +906,9 @@ def get_monthly_data(
         See nested_file_list_by_init().
     engine : str, optional
         Backend to use for xarray (default is "netcdf4").
+    resolved_files : list of list of str, optional
+        Exact files grouped by initialization and member. Supplying this skips
+        archive discovery; groups must follow ``init_tags`` and ``members``.
 
     Returns
     -------
@@ -891,21 +942,33 @@ def get_monthly_data(
             "preproc(ds0, nlead, field)"
         )
 
-    file_list, valid_inits = nested_file_list_by_init(
-        data_dir=data_dir,
-        case_prefix=case_prefix,
-        members=members,
-        init_tags=init_tags,
-        field=field,
-        realm=realm,
-        grid=grid,
-        freq=freq,
-        ts_split=ts_split,
-        require_all_members=require_all_members,
-        verify_field_name=verify_field_name,
-        verify_coverage=verify_coverage,
-        nlead=nlead,
-    )
+    if resolved_files is None:
+        file_list, valid_inits = nested_file_list_by_init(
+            data_dir=data_dir,
+            case_prefix=case_prefix,
+            members=members,
+            init_tags=init_tags,
+            field=field,
+            realm=realm,
+            grid=grid,
+            freq=freq,
+            ts_split=ts_split,
+            require_all_members=require_all_members,
+            verify_field_name=verify_field_name,
+            verify_coverage=verify_coverage,
+            nlead=nlead,
+        )
+    else:
+        file_list = [[str(path) for path in group] for group in resolved_files]
+        if len(file_list) != len(init_tags):
+            raise ValueError(
+                "resolved_files must contain one file group per initialization tag"
+            )
+        if require_all_members and any(len(group) != len(members) for group in file_list):
+            raise ValueError(
+                "Each resolved_files group must contain every requested member"
+            )
+        valid_inits = list(init_tags)
 
     if not file_list:
         raise ValueError(
@@ -945,6 +1008,12 @@ def get_monthly_data(
         )
     ds = ds.assign_coords(M=("M", members[:n_members_loaded]))
     ds = ds.transpose("Y", "L", "M", ...)
+    # Y and L are authoritative.  Reconstruct time after multi-file concat so
+    # a lazily combined source time variable cannot become detached from its
+    # initialization year (the failure previously seen in SMYLE benchmarks).
+    valid_time = _verification_time_from_init_tags(ds.Y.values, ds.L.values)
+    ds["time"] = valid_time.assign_coords(Y=ds.Y, L=ds.L)
+    ds.attrs["verification_time_construction"] = "init_tag_plus_lead_v1"
     if post_chunks:
         ds = ds.chunk(post_chunks)
 
@@ -995,7 +1064,11 @@ def e3sm_region_mask(da, lonlat, lat_name="lat", lon_name="lon"):
 
     lat_mask = (lat2d >= lat_s) & (lat2d <= lat_n)
     
-    if lon_w_360 <= lon_e_360:
+    # A full-longitude region such as [0, 360] has coincident normalized
+    # endpoints. Treat it as the full circle rather than a zero-width strip.
+    if abs(lon_e - lon_w) >= 360:
+        lon_mask = xr.ones_like(lon2d, dtype=bool)
+    elif lon_w_360 <= lon_e_360:
         lon_mask = (lon2d >= lon_w_360) & (lon2d <= lon_e_360)
     else:
         # Handles regions crossing the prime meridian (0 degrees) when using [0, 360) representation

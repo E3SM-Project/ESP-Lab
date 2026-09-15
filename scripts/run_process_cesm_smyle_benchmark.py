@@ -57,7 +57,7 @@ Notes
   --force is given.
 - By default, both monthly (freq=mon) and seasonal (freq=seas) benchmark
   files are written. Use --freqs to choose one or both.
-- Diagnostic figures are written to <outdir>/verify/ as PNG files.
+- Diagnostic figures are written below --figdir, not the data cache.
 """
 
 import argparse
@@ -84,7 +84,8 @@ FIELDS_ALL = ["TREFHT", "TS", "PRECT", "PSL"]
 INIT_MONTHS_ALL = [2, 5, 8, 11]
 
 DATA_DIR_DEFAULT = "/global/cfs/cdirs/e3sm/S2S2D/CESM-SMYLE"
-OUTDIR_DEFAULT = smyle_access.BENCHMARK_OUTDIR_DEFAULT
+OUTDIR_DEFAULT = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/CESM-SMYLE"
+FIGDIR_DEFAULT = "/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag"
 
 YEAR_START_DEFAULT = 1980
 YEAR_END_DEFAULT = 2018
@@ -111,6 +112,11 @@ def parse_args() -> argparse.Namespace:
         "--outdir",
         default=OUTDIR_DEFAULT,
         help=f"Output benchmark directory. Default: {OUTDIR_DEFAULT}",
+    )
+    p.add_argument(
+        "--figdir",
+        default=FIGDIR_DEFAULT,
+        help=f"Output directory for verification figures. Default: {FIGDIR_DEFAULT}",
     )
     p.add_argument(
         "--fields",
@@ -191,6 +197,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--open-parallel",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Use xarray.open_mfdataset(parallel=True) when opening raw "
+            "CESM-SMYLE files. Default is serial opens to avoid intermittent "
+            "netCDF/HDF5 metadata errors on CFS."
+        ),
+    )
+    p.add_argument(
         "--freqs",
         nargs="+",
         default=["mon", "seas"],
@@ -203,7 +219,7 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help=(
             "After writing each benchmark file, run sanity checks and save "
-            "diagnostic figures to <outdir>/verify/. "
+            "diagnostic figures to <figdir>/CESM-SMYLE/verify/. "
             "Checks: dimension completeness, NaN fraction, value ranges. "
             "Figures: ensemble-mean global map, ensemble-spread map, "
             "global-mean lead-time series, and Niño-3.4 lead-time series."
@@ -503,6 +519,128 @@ def validate_monthly_dataset(
             f"expected {len(members)}."
         )
 
+    mismatch_count = smyle_access.verification_time_mismatch_count(ds)
+    if mismatch_count:
+        raise ValueError(
+            f"Loaded {field!r} has {mismatch_count} verification timestamp(s) "
+            "that disagree with its Y initialization tags and L lead values."
+        )
+
+
+def existing_benchmark_issues(
+    path: Path,
+    *,
+    field: str,
+    init_month: int,
+    years: list,
+    members: list,
+    nlead: int,
+    freq: str,
+    allow_year_superset: bool = False,
+) -> list[str]:
+    """Return reasons an existing benchmark cannot safely be reused.
+
+    Timestamp consistency alone is not sufficient: a legacy file may have a
+    self-consistent ``time(Y, L)`` coordinate while silently omitting an
+    initialization year.  Validate the full expected cohort before honoring
+    the idempotent skip path.
+    """
+    issues: list[str] = []
+    expected_y = smyle_access.build_init_tags(years, init_month)
+    expected_m = members
+
+    if freq == "mon":
+        expected_l = list(range(1, nlead + 1))
+    else:
+        verification_time = smyle_access.expected_verification_time(
+            [expected_y[0]], range(1, nlead + 1)
+        )
+        months = verification_time.isel(Y=0).dt.month.values
+        expected_l = [
+            lead
+            for lead, month in zip(range(1, nlead + 1), months)
+            if int(month) in (1, 4, 7, 10)
+        ]
+
+    with xr.open_dataset(path) as existing:
+        if field not in existing:
+            issues.append(f"missing field {field}")
+
+        actual_y = (
+            [str(value) for value in existing["Y"].values]
+            if "Y" in existing.coords else []
+        )
+        missing = [value for value in expected_y if value not in actual_y]
+        extra = [value for value in actual_y if value not in expected_y]
+        if missing or (extra and not allow_year_superset):
+            issues.append(
+                f"initialization cohort differs (Y={len(actual_y)}, "
+                f"expected {len(expected_y)}; missing={missing}, extra={extra})"
+            )
+
+        actual_m = (
+            [str(value) for value in existing["M"].values]
+            if "M" in existing.coords else []
+        )
+        if actual_m != expected_m:
+            issues.append(
+                f"member cohort differs (M={len(actual_m)}, expected {len(expected_m)})"
+            )
+
+        actual_l = (
+            [int(value) for value in existing["L"].values]
+            if "L" in existing.coords else []
+        )
+        if actual_l != expected_l:
+            issues.append(f"lead coordinate is {actual_l}, expected {expected_l}")
+
+        try:
+            mismatch_count = smyle_access.verification_time_mismatch_count(
+                existing,
+                init_month=init_month,
+            )
+        except (TypeError, ValueError) as exc:
+            issues.append(f"invalid verification time ({exc})")
+        else:
+            if mismatch_count:
+                issues.append(f"{mismatch_count} bad verification dates")
+
+    return issues
+
+
+def load_monthly_benchmark_dataset(
+    *,
+    data_dir: str,
+    members: list,
+    init_tags: list,
+    field: str,
+    nlead: int,
+    require_all_members: bool,
+    verify_coverage: bool,
+    years: list,
+    open_parallel: bool = False,
+) -> xr.Dataset:
+    """Open and validate one CESM-SMYLE monthly benchmark dataset."""
+    ds = smyle_access.get_monthly_data(
+        data_dir=data_dir,
+        members=members,
+        init_tags=init_tags,
+        field=field,
+        nlead=nlead,
+        require_all_members=require_all_members,
+        verify_coverage=verify_coverage,
+        open_parallel=open_parallel,
+    )
+    validate_monthly_dataset(
+        ds=ds,
+        field=field,
+        years=years,
+        members=members,
+        nlead=nlead,
+        require_all_members=require_all_members,
+    )
+    return ds
+
 
 def write_netcdf_atomic(ds, path: Path, encoding: dict) -> None:
     """Write NetCDF via a temp file, then atomically replace the final path."""
@@ -537,6 +675,8 @@ def process_one(
     dry_run: bool,
     run_verify: bool = False,
     freqs: list | None = None,
+    figdir: str | os.PathLike[str] = FIGDIR_DEFAULT,
+    open_parallel: bool = False,
 ) -> str:
     """
     Process one (field, init_month) combination.
@@ -552,8 +692,9 @@ def process_one(
     if freqs is None:
         freqs = ["mon", "seas"]
 
+    output_dir = Path(outdir) / "leadtime_acc" / "inputs" / "atm" / field
     outfiles = {
-        freq: Path(outdir) / benchmark_filename(
+        freq: output_dir / benchmark_filename(
             field,
             init_month,
             nens=len(members),
@@ -563,13 +704,35 @@ def process_one(
         for freq in freqs
     }
 
-    # Skip if all requested output files already exist and --force is not set.
+    # Skip only when all existing products contain the complete requested
+    # cohort and have internally consistent verification dates.  This
+    # invalidates both detached legacy time coordinates and caches that
+    # silently omitted an initialization year.
     if all(path.exists() for path in outfiles.values()) and not force:
-        log.info(
-            "  [SKIP]   %s (already exists)",
-            ", ".join(path.name for path in outfiles.values())
+        invalid_files = []
+        for freq, path in outfiles.items():
+            issues = existing_benchmark_issues(
+                path,
+                field=field,
+                init_month=init_month,
+                years=years,
+                members=members,
+                nlead=nlead,
+                freq=freq,
+            )
+            if issues:
+                invalid_files.append(f"{path.name} ({'; '.join(issues)})")
+        if not invalid_files:
+            log.info(
+                "  [SKIP]   %s (already exists)",
+                ", ".join(path.name for path in outfiles.values())
+            )
+            return "skipped"
+        log.warning(
+            "  [REBUILD] invalid existing benchmark: %s",
+            ", ".join(invalid_files),
         )
-        return "skipped"
+        force = True
 
     if dry_run:
         log.info(
@@ -585,9 +748,11 @@ def process_one(
     # Build init tags for this month only.
     init_tags = smyle_access.build_init_tags(years, init_month)
 
-    # Load monthly data.
+    # Load monthly data once for validation and for any monthly write. If a
+    # seasonal file is also needed, reopen below before building the seasonal
+    # graph so it does not reuse netCDF handles touched by the monthly write.
     try:
-        ds_mon = smyle_access.get_monthly_data(
+        ds_mon = load_monthly_benchmark_dataset(
             data_dir=data_dir,
             members=members,
             init_tags=init_tags,
@@ -595,19 +760,12 @@ def process_one(
             nlead=nlead,
             require_all_members=require_all_members,
             verify_coverage=verify_coverage,
+            years=years,
+            open_parallel=open_parallel,
         )
     except ValueError as e:
         warnings.warn(f"No data for field={field}, init_month={init_month}: {e}")
         return "no_data"
-
-    validate_monthly_dataset(
-        ds=ds_mon,
-        field=field,
-        years=years,
-        members=members,
-        nlead=nlead,
-        require_all_members=require_all_members,
-    )
 
     # Rechunk monthly data.
     # Member chunk size of 1 keeps memory bounded during write/seasonal aggregation.
@@ -621,7 +779,7 @@ def process_one(
     }
     ds_mon = ds_mon.chunk(mchunk_mon)
 
-    os.makedirs(outdir, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Write monthly benchmark
@@ -671,6 +829,23 @@ def process_one(
         if seas_file.exists() and not force:
             log.info("  [SKIP]   %s (already exists)", seas_file.name)
         else:
+            if "mon" in freqs:
+                try:
+                    ds_mon.close()
+                except Exception:
+                    pass
+                ds_mon = load_monthly_benchmark_dataset(
+                    data_dir=data_dir,
+                    members=members,
+                    init_tags=init_tags,
+                    field=field,
+                    nlead=nlead,
+                    require_all_members=require_all_members,
+                    verify_coverage=verify_coverage,
+                    years=years,
+                    open_parallel=open_parallel,
+                ).chunk(mchunk_mon)
+
             # Convert monthly → seasonal.
             ds_seas = cal.mon_to_seas_dask(ds_mon)
 
@@ -708,6 +883,15 @@ def process_one(
 
             log.info("  Writing seasonal benchmark: %s", seas_file)
             write_netcdf_atomic(ds_seas, seas_file, encoding=encoding_seas)
+            try:
+                ds_seas.close()
+            except Exception:
+                pass
+
+    try:
+        ds_mon.close()
+    except Exception:
+        pass
 
     elapsed = time.perf_counter() - t0
     log.info(
@@ -718,7 +902,7 @@ def process_one(
         for freq, fpath in outfiles.items():
             if not fpath.exists():
                 continue
-            fig_dir = os.path.join(outdir, "verify")
+            fig_dir = os.path.join(str(figdir), "CESM-SMYLE", "verify")
             report = verify_benchmark(
                 fpath=str(fpath),
                 field=field,
@@ -773,8 +957,10 @@ def main() -> None:
     log.info("  force         : %s", args.force)
     log.info("  dry_run       : %s", args.dry_run)
     log.info("  verify_coverage : %s", args.verify_coverage)
+    log.info("  open_parallel : %s", args.open_parallel)
     log.info("  workers       : %d", args.workers)
     log.info("  verify        : %s", args.verify)
+    log.info("  figdir        : %s", args.figdir)
     log.info("=" * 70)
 
     client = None
@@ -812,6 +998,8 @@ def main() -> None:
                     dry_run=args.dry_run,
                     run_verify=args.verify,
                     freqs=args.freqs,
+                    figdir=args.figdir,
+                    open_parallel=args.open_parallel,
                 )
                 counters[status] = counters.get(status, 0) + 1
             except KeyboardInterrupt:

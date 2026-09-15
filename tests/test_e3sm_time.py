@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from esp_lab import data_access_e3sm
 from esp_lab.data_access_e3sm import drop_feb29, time_set_midmonth
 
 
@@ -143,3 +144,33 @@ def test_time_set_midmonth_preserves_feb29_month_end():
         np.datetime64("2000-02-15T00:00:00.000000000"),
         np.datetime64("2000-03-15T00:00:00.000000000"),
     ]
+
+
+def test_get_monthly_data_uses_resolved_files_without_archive_discovery(monkeypatch):
+    resolved = [["/archive/case/EN00/TWS_200005_200006.nc"]]
+
+    def forbid_discovery(**kwargs):
+        raise AssertionError("archive discovery should be skipped")
+
+    def fake_open_mfdataset(files, **kwargs):
+        assert files == resolved
+        return xr.Dataset(
+            {"TWS": (("Y", "M", "L"), np.ones((1, 1, 2)))},
+            coords={"L": [1, 2]},
+        )
+
+    monkeypatch.setattr(data_access_e3sm, "nested_file_list_by_init", forbid_discovery)
+    monkeypatch.setattr(data_access_e3sm.xr, "open_mfdataset", fake_open_mfdataset)
+
+    result = data_access_e3sm.get_monthly_data(
+        data_dir="/archive",
+        case_prefix="case",
+        members=["EN00"],
+        init_tags=["2000050100"],
+        field="TWS",
+        nlead=2,
+        resolved_files=resolved,
+    )
+
+    assert result.sizes == {"Y": 1, "L": 2, "M": 1}
+    assert result.Y.values.tolist() == ["2000050100"]

@@ -56,7 +56,7 @@ def _validate_path_arg(name: str, value: str) -> None:
     Validate that a path-related argument is a string.
 
     This mainly guards against accidental tuple creation from notebook code like:
-        product = "HadISST",
+        product = "HadISST2",
     """
     if not isinstance(value, str):
         raise TypeError(f"{name} must be a string, got {type(value).__name__}: {value!r}")
@@ -421,6 +421,7 @@ def transform_to_mid_month(ds: xr.Dataset, time_name: str = "time") -> xr.Datase
     observational products, where monthly data are stored at true month start.
 
     This function is intentionally conservative:
+
     - if time bounds are available, use their lower bound as the represented
       month;
     - if timestamps are already on day 15, leave the represented month as-is;
@@ -736,7 +737,7 @@ def get_monthly_data(
     preproc : {"default"} or callable, optional
         - "default": use built-in monthly preprocessor
         - callable: custom preprocessing function with signature
-          preproc(ds, field=None, start_year=None, end_year=None, **kwargs)
+          ``preproc(ds, field=None, start_year=None, end_year=None, **kwargs)``
     start_year : str, optional
         Start year for cropping.
     end_year : str, optional
@@ -983,7 +984,11 @@ def obs_region_mask(
 
     lat_mask = (lat2d >= lat_s) & (lat2d <= lat_n)
 
-    if lon_w_360 <= lon_e_360:
+    # A full-longitude region such as [0, 360] has coincident normalized
+    # endpoints. Treat it as the full circle rather than a zero-width strip.
+    if abs(lon_e - lon_w) >= 360:
+        lon_mask = xr.ones_like(lon2d, dtype=bool)
+    elif lon_w_360 <= lon_e_360:
         lon_mask = (lon2d >= lon_w_360) & (lon2d <= lon_e_360)
     else:
         # Region crosses the dateline in [0, 360) convention
