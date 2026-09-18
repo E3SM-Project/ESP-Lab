@@ -478,14 +478,17 @@ def test_teleconnection_cache_path_matches_provenance(tmp_path):
         "field_observed": str(sources[3]),
     }])
     config = {
-        "selection": {"upstream_index": "Nino3.4"},
+        "selection": {
+            "upstream_index": "Nino3.4",
+            "downstream_variable": "TREFHT",
+            "verification_years": [1981, 2011],
+        },
         "analysis": {"detrend": True},
         "paths": {"output_dir": str(tmp_path / "cache")},
     }
 
-    expected_fingerprint = telecon.compute_provenance_fingerprint(config, sources)
     assert telecon.teleconnection_cache_path(config, inventory) == (
-        tmp_path / "cache" / f"teleconnection_Nino34_{expected_fingerprint}.nc"
+        tmp_path / "cache" / "teleconnection_Nino34_TREFHT_verify1981_2011.nc"
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -13,7 +14,7 @@ import xarray as xr
 from scipy import stats as scipy_stats
 
 DEFAULT_DIAG_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag")
-DEFAULT_OUTPUT_DIR = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/teleconnections")
+DEFAULT_OUTPUT_DIR = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/multimodel/leadtime_telec")
 DEFAULT_FIGURE_DIR = Path("/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/teleconnections")
 DEFAULT_DOWNSTREAM_TARGET_GRIDS = {
     "atmosphere": "latlon_1.0x1.0_periodic-True",
@@ -45,6 +46,14 @@ E3SM_CASES: dict[str, dict[str, Any]] = {
         "display_name": "E3SMv3-4DEnVarOcn",
         "source_revision": "post_process_v1",
         "color": "tab:purple",
+        "supports_land": True,
+    },
+    "E3SM-BruteForce": {
+        "case_prefix": "WCYCL20TR_ne30pg2_r05_IcoswISC30E3r5_BruteForce",
+        "cache_tag": "Reanalysis",
+        "display_name": "E3SMv3-Reanalysis",
+        "source_revision": "post_process_v1",
+        "color": "tab:blue",
         "supports_land": True,
     },
 }
@@ -1105,7 +1114,11 @@ def ensure_teleconnection_dataset(
     if inventory is None:
         inventory = build_teleconnection_inventory(config)
 
-    missing = inventory.query("status == 'missing'")
+    missing = (
+        inventory.query("status == 'missing'")
+        if "status" in inventory.columns
+        else pd.DataFrame()
+    )
     if not missing.empty:
         raise FileNotFoundError(
             "Required upstream products are missing. Please verify preparation workflows:\n"
@@ -1118,6 +1131,22 @@ def ensure_teleconnection_dataset(
     index_name = teleconnection_config(config)["upstream_index"]
     output_dir = out_file.parent
     cache_mode = config["cache"].get("mode", "auto")
+
+    if not out_file.is_file():
+        filename = out_file.name
+        diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
+        clean_index = str(index_name).replace(".", "").strip()
+        candidates = [
+            diag_root / "multimodel" / "leadtime_telec" / filename,
+            diag_root / "teleconnections" / filename,
+            output_dir / f"teleconnection_{clean_index}_{fingerprint}.nc",
+            diag_root / "multimodel" / "leadtime_telec" / f"teleconnection_{clean_index}_{fingerprint}.nc",
+            diag_root / "teleconnections" / f"teleconnection_{clean_index}_{fingerprint}.nc",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                out_file = cand
+                break
 
     if out_file.is_file() and cache_mode != "rebuild":
         chunks = config.get("dask", {}).get("chunks")
@@ -1163,6 +1192,38 @@ def ensure_teleconnection_dataset(
     tmp = out_file.with_suffix(".tmp.nc")
     metrics_ds.to_netcdf(tmp)
     tmp.replace(out_file)
+
+    # Save per-system slice and observation slice alongside multimodel
+    try:
+        diag_root = Path(config["paths"].get("diag_root", DEFAULT_DIAG_ROOT))
+        system_dir_map = {
+            "E3SM-4DEnVarOcn": "4DEnVarOcn",
+            "E3SM-FOSIRL": "JRA55_FOSIRL",
+            "E3SM-Reanalysis": "Reanalysis",
+            "BruteForce": "Reanalysis",
+            "E3SM-BruteForce": "Reanalysis",
+            "CESM-SMYLE": "CESM-SMYLE",
+        }
+        if "system" in metrics_ds:
+            for sys_val in metrics_ds["system"].values:
+                sys_str = str(sys_val)
+                dir_name = system_dir_map.get(sys_str, sys_str)
+                sys_dir = diag_root / dir_name / "leadtime_telec"
+                sys_dir.mkdir(parents=True, exist_ok=True)
+                sys_tmp = sys_dir / f".{out_file.name}.tmp.nc"
+                metrics_ds.sel(system=[sys_val]).to_netcdf(sys_tmp)
+                sys_tmp.replace(sys_dir / out_file.name)
+
+            obs_vars = [v for v in metrics_ds.data_vars if "observed" in v or v == "downstream_lead"]
+            if obs_vars:
+                obs_dir = diag_root / "observations" / "leadtime_telec"
+                obs_dir.mkdir(parents=True, exist_ok=True)
+                obs_tmp = obs_dir / f".{out_file.name}.tmp.nc"
+                metrics_ds[obs_vars].isel(system=0).drop_vars("system", errors="ignore").to_netcdf(obs_tmp)
+                obs_tmp.replace(obs_dir / out_file.name)
+    except Exception as e:
+        warnings.warn(f"Could not write per-system teleconnection slice: {e}")
+
     return metrics_ds, out_file, "computed"
 
 
@@ -1195,7 +1256,28 @@ def _teleconnection_cache_details(
     fingerprint = compute_provenance_fingerprint(
         config, source_paths
     )
-    index_name = teleconnection_config(config)["upstream_index"]
+    selection = teleconnection_config(config)
+    index_name = str(selection["upstream_index"]).replace(".", "").strip()
+    raw_var = selection.get("downstream_variable")
+    if not raw_var:
+        raw_vars = selection.get("downstream_variables", [])
+        if isinstance(raw_vars, str):
+            raw_var = raw_vars
+        elif isinstance(raw_vars, (list, tuple)) and len(raw_vars) == 1:
+            raw_var = raw_vars[0]
+    if not raw_var and inventory is not None and "variable" in inventory.columns and not inventory.empty:
+        unique_vars = inventory["variable"].dropna().unique()
+        if len(unique_vars) == 1:
+            raw_var = unique_vars[0]
+    variable = str(raw_var).upper().strip() if raw_var else "ALL"
+
+    years = selection.get("verification_years")
+    if years is not None:
+        year_start, year_end = int(years[0]), int(years[1])
+        year_suffix = f"_verify{year_start}_{year_end}"
+    else:
+        year_suffix = "_verify1981_2011"
+
     output_dir = Path(config["paths"].get("output_dir", DEFAULT_OUTPUT_DIR))
-    path = output_dir / f"teleconnection_{index_name.replace('.', '')}_{fingerprint}.nc"
+    path = output_dir / f"teleconnection_{index_name}_{variable}{year_suffix}.nc"
     return path, fingerprint, source_paths
