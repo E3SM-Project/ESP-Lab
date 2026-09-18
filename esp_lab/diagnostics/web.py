@@ -2923,6 +2923,10 @@ def _build_html_template(manifest: dict) -> str:
                 section.appendChild(secHeader);
 
                 // Teleconnection driver mode filter pills
+                // Save the FULL unfiltered group so we can compute the canonical
+                // union of btn_types and variable suffixes across ALL modes.
+                const fullGroupFigs = (grp === "TELECONNECTIONS") ? [...groupFigs] : null;
+
                 if (grp === "TELECONNECTIONS") {
                     const driverModes = new Set();
                     groupFigs.forEach(f => {
@@ -2964,11 +2968,12 @@ def _build_html_template(manifest: dict) -> str:
                     byShortname[sn].push(fig);
                 });
 
-                // Build the ordered union of all btn_type labels across this group
-                // so every row gets exactly the same set of button slots.
+                // Build the ordered union of all btn_type labels.
+                // For TELECONNECTIONS: use the FULL pre-filter group so all modes share
+                // the same canonical button types. For other groups: use groupFigs.
                 const allBtnTypes = [];
                 const seenBtnTypes = new Set();
-                groupFigs.forEach(fig => {
+                (fullGroupFigs || groupFigs).forEach(fig => {
                     const bt = fig.btn_type || "Diagnostic";
                     if (!seenBtnTypes.has(bt)) {
                         seenBtnTypes.add(bt);
@@ -2976,11 +2981,32 @@ def _build_html_template(manifest: dict) -> str:
                     }
                 });
 
+                // For TELECONNECTIONS: also build the global union of variable suffixes
+                // (the part after " · " in shortname) so every mode shows the same rows.
+                let shortnameList;
+                if (fullGroupFigs && activeTeleconMode !== "ALL") {
+                    const allSuffixes = [];
+                    const seenSuffixes = new Set();
+                    fullGroupFigs.forEach(fig => {
+                        const sn = fig.shortname || "";
+                        const idx = sn.indexOf(" · ");
+                        const suffix = idx >= 0 ? sn.slice(idx + 3) : sn;
+                        if (suffix && !seenSuffixes.has(suffix)) {
+                            seenSuffixes.add(suffix);
+                            allSuffixes.push(suffix);
+                        }
+                    });
+                    // Construct the canonical shortname list for the selected mode
+                    shortnameList = allSuffixes.map(s => activeTeleconMode + " · " + s).sort();
+                } else {
+                    shortnameList = Object.keys(byShortname).sort();
+                }
+
                 const rowsList = document.createElement("div");
                 rowsList.className = "matrix-rows-list";
 
-                Object.keys(byShortname).sort().forEach(sn => {
-                    const entityFigs = byShortname[sn];
+                shortnameList.forEach(sn => {
+                    const entityFigs = byShortname[sn] || [];
 
                     // Build a quick lookup: btn_type -> figure for this shortname
                     const figByBtnType = {};
@@ -3008,7 +3034,7 @@ def _build_html_template(manifest: dict) -> str:
                     const colButtons = document.createElement("div");
                     colButtons.className = "row-buttons-col";
 
-                    // Render one button per btn_type in the group union —
+                    // Render one button per btn_type in the canonical union —
                     // active if the figure exists, disabled/unavailable otherwise.
                     allBtnTypes.forEach(bt => {
                         const fig = figByBtnType[bt];
