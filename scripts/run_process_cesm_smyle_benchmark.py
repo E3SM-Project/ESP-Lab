@@ -536,7 +536,7 @@ def existing_benchmark_issues(
     members: list,
     nlead: int,
     freq: str,
-    allow_year_superset: bool = False,
+    allow_year_superset: bool = True,
 ) -> list[str]:
     """Return reasons an existing benchmark cannot safely be reused.
 
