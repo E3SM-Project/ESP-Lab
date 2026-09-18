@@ -58,7 +58,9 @@ The primary evaluation workflows are organized sequentially under the [`jupyter/
 | [`5c_eli_telecon.ipynb`](jupyter/5c_eli_telecon.ipynb) | Teleconnections | ELI precipitation and temperature teleconnections |
 | [`6a_shock_ts.ipynb`](jupyter/6a_shock_ts.ipynb) | Initialization Shock | Lead-dependent drift and initialization shock time series |
 | [`6b_shock_index.ipynb`](jupyter/6b_shock_index.ipynb) | Shock Indices | Initialization shock metrics and multi-model indices |
-| [`7_run_viewer_webpage.ipynb`](jupyter/7_run_viewer_webpage.ipynb) | Gallery Webpage | Interactive HTML diagnostics viewer generator |
+| [`7a_tc_method_analysis.ipynb`](jupyter/7a_tc_method_analysis.ipynb) | Tropical Cyclones | TempestExtremes tracking method and parameter comparison |
+| [`7b_tc_leadtime_analysis.ipynb`](jupyter/7b_tc_leadtime_analysis.ipynb) | Tropical Cyclones | TC lead-time density, IBTrACS comparison, and ENSO regression |
+| [`8_run_viewer_webpage.ipynb`](jupyter/8_run_viewer_webpage.ipynb) | Gallery Webpage | Interactive HTML diagnostics viewer generator |
 
 ## Interactive Web Viewer
 ESP-Lab includes a responsive HTML web generator (`esp_lab.diagnostics.web`) that compiles all evaluation figures into a standalone, browsable diagnostics gallery.
@@ -116,8 +118,9 @@ All diagnostic plots are published into a unified web-accessible root (e.g., `/g
 | **ELI Teleconnections** | `5c` | `fig_teleconnection_{index}_{var}_{metric}.png` | `fig_teleconnection_ELI_PRECT_summary.png`, `fig_teleconnection_ELI_TREFHT_summary.png` |
 | **Initial Shock Evolution** | `6a` | `fig_shock_ts_{field}_{detail}.png` | `fig_shock_ts_prect_init05-init11_1980_2011_seasonal_absolute_normalized_change.png` |
 | **Initial Shock Error** | `6b` | `fig_shock_error_{field}_{detail}.png` | `fig_shock_error_trefht_init1980-2011_clim1981-2010_monthly_normalized_rmse.png` |
+| **Tropical Cyclones** | `7a`, `7b` | `fig_tc_{metric}.png` | `fig_tc_genesis_density_method_compare.png`, `fig_tc_tracks_density_sanity_compare.png` |
 
-These figures are automatically cataloged by [`7_run_viewer_webpage.ipynb`](jupyter/7_run_viewer_webpage.ipynb) into `figures.json` and rendered into the interactive web viewer `index.html`.
+These figures are automatically cataloged by [`8_run_viewer_webpage.ipynb`](jupyter/8_run_viewer_webpage.ipynb) into `figures.json` and rendered into the interactive web viewer `index.html`.
 
 ## Installation
 

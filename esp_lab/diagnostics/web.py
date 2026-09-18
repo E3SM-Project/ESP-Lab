@@ -42,6 +42,8 @@ def _humanize_figure_name(filename: str) -> str:
         "5c": "5c",
         "6a": "6a",
         "6b": "6b",
+        "7a": "7a",
+        "7b": "7b",
         "acc": "ACC",
         "conus": "CONUS",
         "eli": "ELI",
@@ -197,7 +199,12 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
         or "eli" in metric_lower
     ):
         return "ELI"
-    if stem.startswith("fig_tc_") or "track_density" in stem:
+    if (
+        stem.startswith(("fig_tc_", "fig_7a_", "fig_7b_"))
+        or "track_density" in stem
+        or mode.upper() == "TC"
+        or "tropical_cyclone" in stem
+    ):
         return "TC"
     if (
         stem.startswith(("fig_mov_", "fig_4a_"))
@@ -441,6 +448,21 @@ def _infer_shortname_and_type(
             btn_type = "Regime Fraction"
         else:
             btn_type = "Drift Metric"
+
+    elif group == "TC":
+        shortname = "Tropical Cyclones"
+        if "genesis_density" in stem_lower or "method_compare" in stem_lower:
+            btn_type = "Method Compare"
+        elif "sanity_compare" in stem_lower or "tracks_density_sanity" in stem_lower:
+            btn_type = "Sanity Compare"
+        elif "trajectory" in stem_lower:
+            btn_type = "Trajectory Compare"
+        elif "enso_regression" in stem_lower:
+            btn_type = "Regression Map"
+        elif "leadtime" in stem_lower or "track_density_compare" in stem_lower:
+            btn_type = "Leadtime Compare"
+        else:
+            btn_type = "TC Diagnostic"
 
     return shortname, btn_type
 
@@ -2629,6 +2651,21 @@ def _build_html_template(manifest: dict) -> str:
                     else if (metPart.includes("taylor")) btnType = "Taylor Diagram";
                     else btnType = metPart;
                 }
+            } else if (group === "TC") {
+                shortname = "Tropical Cyclones";
+                if (stemLower.includes("genesis_density") || stemLower.includes("method_compare")) {
+                    btnType = "Method Compare";
+                } else if (stemLower.includes("sanity_compare") || stemLower.includes("tracks_density_sanity")) {
+                    btnType = "Sanity Compare";
+                } else if (stemLower.includes("trajectory")) {
+                    btnType = "Trajectory Compare";
+                } else if (stemLower.includes("enso_regression")) {
+                    btnType = "Regression Map";
+                } else if (stemLower.includes("leadtime") || stemLower.includes("track_density_compare")) {
+                    btnType = "Leadtime Compare";
+                } else {
+                    btnType = "TC Diagnostic";
+                }
             }
             return { shortname, btn_type: btnType };
         }
@@ -2726,7 +2763,7 @@ def _build_html_template(manifest: dict) -> str:
             });
 
             const workflowOrder = [
-                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "OTHER"
+                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "TC", "OTHER"
             ];
             const groups = Object.keys(counts)
                 .filter(g => g !== "ALL")
@@ -2886,7 +2923,7 @@ def _build_html_template(manifest: dict) -> str:
             }
 
             const workflowOrder = [
-                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "OTHER"
+                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "TC", "OTHER"
             ];
             const byGroup = {};
             list.forEach(fig => {
