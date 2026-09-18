@@ -180,20 +180,27 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     path_str = str(path_obj).lower()
     metric_lower = metric.lower()
 
-    if stem.startswith(("fig_6a_", "fig_6b_")) or "initial_shock" in path_str or "shock" in stem:
+    if (
+        stem.startswith(("fig_shock_", "fig_6a_", "fig_6b_"))
+        or "initial_shock" in path_str
+        or "shock" in stem
+    ):
         return "INITIAL_SHOCK"
     if (
-        stem.startswith(("fig_3b_", "fig_4b_", "fig_5c_"))
-        or stem.startswith("teleconnection_")
+        stem.startswith(("fig_teleconnection_", "teleconnection_", "fig_3b_", "fig_4b_", "fig_5c_"))
         or path_str.startswith("teleconnections")
     ):
         return "TELECONNECTIONS"
-    if stem.startswith(("fig_5a_", "fig_5b_")) or "eli" in stem or "eli" in metric_lower:
+    if (
+        stem.startswith(("fig_eli_", "fig_5a_", "fig_5b_"))
+        or "eli" in stem
+        or "eli" in metric_lower
+    ):
         return "ELI"
     if stem.startswith("fig_tc_") or "track_density" in stem:
         return "TC"
     if (
-        stem.startswith("fig_4a_")
+        stem.startswith(("fig_mov_", "fig_4a_"))
         or mode.upper() in CLIMATE_MODES
         or metric_lower in {
             "eof_patterns",
@@ -203,7 +210,7 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     ):
         return "MOV"
     if (
-        stem.startswith(("fig_1a_", "fig_1b_"))
+        stem.startswith(("fig_atm_acc_", "fig_lnd_acc_", "fig_lead_acc_", "fig_1a_", "fig_1b_"))
         or "leadtime_acc" in stem
         or metric_lower.startswith("leadtime_acc")
     ):
@@ -211,7 +218,7 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     if metric_lower.startswith("leadtime_drift") or "_drift" in stem:
         return "LEAD_DRIFT"
     if (
-        stem.startswith(("fig_2a_", "fig_2b_"))
+        stem.startswith(("fig_atm_rmse_", "fig_rmse_compare_", "fig_lead_rmse_", "fig_2a_", "fig_2b_"))
         or metric_lower.startswith("leadtime_rmse")
         or metric_lower.startswith("rmse_compare")
         or "_rmse" in stem
@@ -255,23 +262,23 @@ def _infer_shortname_and_type(
             if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
                 break
-        if "compare_conus" in stem_lower:
+        if "compare" in stem_lower and "conus" in stem_lower:
             btn_type = "Compare (CONUS)"
-        elif "compare_global" in stem_lower:
+        elif "compare" in stem_lower and "global" in stem_lower:
             btn_type = "Compare (Global)"
-        elif "difference_compare_init05" in stem_lower:
+        elif "diff" in stem_lower and "compare" in stem_lower and "init05" in stem_lower:
             btn_type = "Diff Compare (May)"
-        elif "difference_compare_init11" in stem_lower:
+        elif "diff" in stem_lower and "compare" in stem_lower and "init11" in stem_lower:
             btn_type = "Diff Compare (Nov)"
-        elif "difference_compare" in stem_lower:
-            btn_type = "Diff Compare"
-        elif "difference_global_init05" in stem_lower:
+        elif "diff" in stem_lower and "global" in stem_lower and "init05" in stem_lower:
             btn_type = "Diff Global (May)"
-        elif "difference_global_init11" in stem_lower:
+        elif "diff" in stem_lower and "global" in stem_lower and "init11" in stem_lower:
             btn_type = "Diff Global (Nov)"
-        elif "difference_global" in stem_lower:
+        elif "diff" in stem_lower and "compare" in stem_lower:
+            btn_type = "Diff Compare"
+        elif "diff" in stem_lower and "global" in stem_lower:
             btn_type = "Diff Global"
-        elif "difference" in stem_lower:
+        elif "difference" in stem_lower or "diff" in stem_lower:
             btn_type = "Difference"
         elif "conus" in stem_lower:
             btn_type = "CONUS RMSE"
@@ -347,7 +354,7 @@ def _infer_shortname_and_type(
             btn_type = "ELI Skill"
 
     elif group == "INITIAL_SHOCK":
-        if stem_lower.startswith("fig_6b_") or "initial_shock_rmse_mae" in file_lower or "normalized_rmse" in stem_lower:
+        if stem_lower.startswith(("fig_shock_error_", "fig_6b_")) or "initial_shock_rmse_mae" in file_lower or "normalized_rmse" in stem_lower:
             shortname = "Error Heatmaps"
             var = "TREFHT" if "trefht" in stem_lower else "TS"
             if "lead-year-1" in stem_lower:
@@ -387,7 +394,7 @@ def _infer_shortname_and_type(
                 btn_type = "Shock Metric"
 
     elif group == "TELECONNECTIONS":
-        m = re.search(r"(?:fig_[345][bc]_)?teleconnection_([A-Za-z0-9\.\+]+)_([A-Za-z0-9]+)_(.+)", stem, re.IGNORECASE)
+        m = re.search(r"(?:fig_(?:[345][bc]_|)|)teleconnection_([A-Za-z0-9\.\+]+)_([A-Za-z0-9]+)_(.+)", stem, re.IGNORECASE)
         if m:
             mode_part = m.group(1)
             var_part = m.group(2)
@@ -2503,15 +2510,15 @@ def _build_html_template(manifest: dict) -> str:
                 for (const v of vars) {
                     if (stemLower.includes(v.toLowerCase())) { shortname = v; break; }
                 }
-                if (stemLower.includes("compare_conus")) btnType = "Compare (CONUS)";
-                else if (stemLower.includes("compare_global")) btnType = "Compare (Global)";
-                else if (stemLower.includes("difference_compare_init05")) btnType = "Diff Compare (May)";
-                else if (stemLower.includes("difference_compare_init11")) btnType = "Diff Compare (Nov)";
-                else if (stemLower.includes("difference_compare")) btnType = "Diff Compare";
-                else if (stemLower.includes("difference_global_init05")) btnType = "Diff Global (May)";
-                else if (stemLower.includes("difference_global_init11")) btnType = "Diff Global (Nov)";
-                else if (stemLower.includes("difference_global")) btnType = "Diff Global";
-                else if (stemLower.includes("difference")) btnType = "Difference";
+                if (stemLower.includes("compare") && stemLower.includes("conus")) btnType = "Compare (CONUS)";
+                else if (stemLower.includes("compare") && stemLower.includes("global")) btnType = "Compare (Global)";
+                else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init05")) btnType = "Diff Compare (May)";
+                else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init11")) btnType = "Diff Compare (Nov)";
+                else if (stemLower.includes("diff") && stemLower.includes("global") && stemLower.includes("init05")) btnType = "Diff Global (May)";
+                else if (stemLower.includes("diff") && stemLower.includes("global") && stemLower.includes("init11")) btnType = "Diff Global (Nov)";
+                else if (stemLower.includes("diff") && stemLower.includes("compare")) btnType = "Diff Compare";
+                else if (stemLower.includes("diff") && stemLower.includes("global")) btnType = "Diff Global";
+                else if (stemLower.includes("difference") || stemLower.includes("diff")) btnType = "Difference";
                 else if (stemLower.includes("conus")) btnType = "CONUS RMSE";
                 else if (stemLower.includes("global")) btnType = "Global RMSE";
                 else btnType = "RMSE Skill";
@@ -2551,7 +2558,7 @@ def _build_html_template(manifest: dict) -> str:
                 else if (stemLower.includes("dual_axis_jja")) btnType = "Dual-Axis JJA";
                 else btnType = "ELI Skill";
             } else if (group === "INITIAL_SHOCK") {
-                if (stemLower.startsWith("fig_6b_") || fileLower.includes("initial_shock_rmse_mae") || stemLower.includes("normalized_rmse")) {
+                if (stemLower.startsWith("fig_shock_error_") || stemLower.startsWith("fig_6b_") || fileLower.includes("initial_shock_rmse_mae") || stemLower.includes("normalized_rmse")) {
                     shortname = "Error Heatmaps";
                     const v = stemLower.includes("trefht") ? "TREFHT" : "TS";
                     if (stemLower.includes("lead-year-1")) btnType = `${v} Lead Y1`;
@@ -2572,7 +2579,7 @@ def _build_html_template(manifest: dict) -> str:
                     else btnType = "Shock Metric";
                 }
             } else if (group === "TELECONNECTIONS") {
-                const match = stem.match(/(?:fig_[345][bc]_)?teleconnection_([A-Za-z0-9\\.\\+]+)_([A-Za-z0-9]+)_(.+)/i);
+                const match = stem.match(/(?:fig_(?:[345][bc]_|)|)teleconnection_([A-Za-z0-9\\.\\+]+)_([A-Za-z0-9]+)_(.+)/i);
 
                 if (match) {
                     let modePart = match[1];
