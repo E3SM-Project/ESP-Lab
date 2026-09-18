@@ -1208,6 +1208,20 @@ def _build_html_template(manifest: dict) -> str:
             white-space: nowrap;
         }
 
+        .diag-btn.btn-unavailable {
+            opacity: 0.22;
+            cursor: not-allowed;
+            pointer-events: none;
+            border-color: rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-secondary);
+        }
+
+        .diag-btn.btn-unavailable .diag-btn-indicator {
+            background-color: rgba(255, 255, 255, 0.15);
+            box-shadow: none;
+        }
+
         /* Compact figure-type filters within the selected workflow group */
         .metrics-tabs {
             display: none;
@@ -2950,36 +2964,72 @@ def _build_html_template(manifest: dict) -> str:
                     byShortname[sn].push(fig);
                 });
 
+                // Build the ordered union of all btn_type labels across this group
+                // so every row gets exactly the same set of button slots.
+                const allBtnTypes = [];
+                const seenBtnTypes = new Set();
+                groupFigs.forEach(fig => {
+                    const bt = fig.btn_type || "Diagnostic";
+                    if (!seenBtnTypes.has(bt)) {
+                        seenBtnTypes.add(bt);
+                        allBtnTypes.push(bt);
+                    }
+                });
+
                 const rowsList = document.createElement("div");
                 rowsList.className = "matrix-rows-list";
 
                 Object.keys(byShortname).sort().forEach(sn => {
                     const entityFigs = byShortname[sn];
+
+                    // Build a quick lookup: btn_type -> figure for this shortname
+                    const figByBtnType = {};
+                    entityFigs.forEach(fig => {
+                        figByBtnType[fig.btn_type || "Diagnostic"] = fig;
+                    });
+
                     const row = document.createElement("div");
                     row.className = "matrix-row";
 
                     const colEntity = document.createElement("div");
                     colEntity.className = "row-entity-col";
+                    const availCount = entityFigs.length;
+                    const totalCount = allBtnTypes.length;
+                    const diagLabel = availCount === totalCount
+                        ? `${availCount} ${availCount === 1 ? 'diagnostic' : 'diagnostics'}`
+                        : `${availCount} / ${totalCount} diagnostics`;
                     colEntity.innerHTML = `
                         <div class="entity-badge">
                             <span class="entity-badge-tag">${escapeHtml(sn)}</span>
                         </div>
-                        <span class="row-entity-sub">${entityFigs.length} ${entityFigs.length === 1 ? 'diagnostic' : 'diagnostics'}</span>
+                        <span class="row-entity-sub">${diagLabel}</span>
                     `;
 
                     const colButtons = document.createElement("div");
                     colButtons.className = "row-buttons-col";
 
-                    entityFigs.forEach(fig => {
+                    // Render one button per btn_type in the group union —
+                    // active if the figure exists, disabled/unavailable otherwise.
+                    allBtnTypes.forEach(bt => {
+                        const fig = figByBtnType[bt];
                         const btn = document.createElement("button");
-                        btn.className = "diag-btn";
-                        btn.title = `${fig.title || fig.file}\nClick to bump out figure\nFile: ${fig.file}`;
-                        btn.onclick = () => openLightboxForFigureByFile(encodeURIComponent(fig.file));
+                        const indClass = getIndicatorClass(bt);
 
-                        const indClass = getIndicatorClass(fig.btn_type);
+                        if (fig) {
+                            btn.className = "diag-btn";
+                            btn.title = `${fig.title || fig.file}\nClick to bump out figure\nFile: ${fig.file}`;
+                            btn.onclick = () => openLightboxForFigureByFile(encodeURIComponent(fig.file));
+                        } else {
+                            btn.className = "diag-btn btn-unavailable";
+                            btn.setAttribute("disabled", "true");
+                            btn.setAttribute("aria-disabled", "true");
+                            btn.setAttribute("tabindex", "-1");
+                            btn.title = `Figure not available for ${sn}`;
+                        }
+
                         btn.innerHTML = `
                             <span class="diag-btn-indicator ${indClass}"></span>
-                            <span class="diag-btn-label">${escapeHtml(fig.btn_type || "Diagnostic")}</span>
+                            <span class="diag-btn-label">${escapeHtml(bt)}</span>
                         `;
                         colButtons.appendChild(btn);
                     });
