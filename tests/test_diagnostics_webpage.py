@@ -231,3 +231,29 @@ def test_generate_webpage_contains_matrix_dashboard(tmp_path):
     assert "setViewMode" in content
     assert "openLightboxForFigureByFile" in content
 
+
+def test_canonical_prefixes_classification(tmp_path):
+    # Test canonical prefixes across workflow steps
+    test_files = [
+        ("fig_1a_prect_acc_compare.png", "LEAD_ACC", "PRECT", "Model Compare"),
+        ("fig_1b_h2osoi_acc_difference.png", "LEAD_ACC", "H2OSOI", "Difference"),
+        ("fig_2a_prect_rmse_conus.png", "LEAD_RMSE", "PRECT", "CONUS RMSE"),
+        ("fig_2b_prect_rmse_difference_compare_init05.png", "LEAD_RMSE", "PRECT", "Diff Compare (May)"),
+        ("fig_3a_nino34_acc_skill.png", "SST_INDEX", "Niño3.4", "ACC Skill"),
+        ("fig_3a_roni_time_series.png", "SST_INDEX", "RONI", "Time Series"),
+        ("fig_4a_pdo_eof_patterns_year1.png", "MOV", "PDO", "EOF Year 1"),
+        ("fig_4a_nao_global_teleconnection_patterns_init05.png", "MOV", "NAO", "Telecon May"),
+        ("fig_5a_eli_multimodel_acc_nrmse_skill.png", "ELI", "ELI Diagnostics", "ACC / nRMSE Skill"),
+    ]
+    for fn, expected_grp, expected_shortname, expected_btn_type in test_files:
+        (tmp_path / fn).touch()
+
+    manifest = discover_workflow_figures(tmp_path)
+    by_file = {fig["file"]: fig for fig in manifest["figures"]}
+
+    for fn, expected_grp, expected_shortname, expected_btn_type in test_files:
+        fig_entry = by_file[fn]
+        assert fig_entry["group"] == expected_grp, f"{fn} group mismatch"
+        assert fig_entry["shortname"] == expected_shortname, f"{fn} shortname mismatch"
+        assert fig_entry["btn_type"] == expected_btn_type, f"{fn} btn_type mismatch"
+
