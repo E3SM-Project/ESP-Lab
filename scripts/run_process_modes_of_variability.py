@@ -570,7 +570,7 @@ def write_manifest(
     if args.legacy_nao_layout:
         path = Path(args.outdir) / "nao_manifest.json"
     else:
-        path = Path(args.outdir) / "_manifests" / "modes_manifest.json"
+        path = Path(args.outdir) / "tmp" / "_manifests" / "modes_manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": PRODUCT_CONFIGURATION_SCHEMA,
@@ -625,8 +625,13 @@ def write_manifest(
     lock_path = path.with_suffix(path.suffix + ".lock")
     with lock_path.open("w") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
-        if getattr(args, "merge_manifest", False) and path.exists():
-            existing = json.loads(path.read_text())
+        source_manifest_path = path
+        if not source_manifest_path.exists():
+            legacy_path = Path(args.outdir) / "_manifests" / "modes_manifest.json"
+            if legacy_path.exists():
+                source_manifest_path = legacy_path
+        if getattr(args, "merge_manifest", False) and source_manifest_path.exists():
+            existing = json.loads(source_manifest_path.read_text())
             compatible_keys = (
                 "schema_version",
                 "processing_script",
