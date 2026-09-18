@@ -677,6 +677,7 @@ def process_one(
     freqs: list | None = None,
     figdir: str | os.PathLike[str] = FIGDIR_DEFAULT,
     open_parallel: bool = False,
+    allow_year_superset: bool = True,
 ) -> str:
     """
     Process one (field, init_month) combination.
@@ -719,6 +720,7 @@ def process_one(
                 members=members,
                 nlead=nlead,
                 freq=freq,
+                allow_year_superset=allow_year_superset,
             )
             if issues:
                 invalid_files.append(f"{path.name} ({'; '.join(issues)})")
