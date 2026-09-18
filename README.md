@@ -6,6 +6,10 @@
   - [E3SM S2D Extensions](#e3sm-s2d-extensions)
   - [Analysis & Diagnostic Suite (`jupyter/`)](#analysis--diagnostic-suite-jupyter)
   - [Interactive Web Viewer](#interactive-web-viewer)
+  - [Data Organization & Output Conventions](#data-organization--output-conventions)
+    - [Diagnostic Data Layout (`S2D_DIAG_ROOT`)](#diagnostic-data-layout-s2d_diag_root)
+    - [NetCDF File Naming Conventions](#netcdf-file-naming-conventions)
+    - [Figure Naming Conventions (`FIGURE_OUTDIR`)](#figure-naming-conventions-figure_outdir)
   - [Installation](#installation)
     - [Developer Installation (Conda Environment)](#developer-installation-conda-environment)
     - [Installation into Existing Conda Environment](#installation-into-existing-conda-environment)
@@ -64,6 +68,52 @@ ESP-Lab includes a responsive HTML web generator (`esp_lab.diagnostics.web`) tha
   - **Quick Buttons View**: One-page clickable matrix organized by diagnostic category and figure type.
   - **Driver Mode Filter**: Instant filtering by initialization mode (`init05`, `init11`, `all`, etc.).
   - **Lightbox Modal**: Click any diagnostic button to pop out the full-resolution graphic with caption and download link.
+
+## Data Organization & Output Conventions
+Diagnostic outputs are structured in two complementary layers: analysis NetCDF datasets (`S2D_DIAG_ROOT`) and public web figures (`FIGURE_OUTDIR`).
+
+### Diagnostic Data Layout (`S2D_DIAG_ROOT`)
+The analysis archive follows an **experiment-first** and **observation-first** canonical structure:
+
+```
+<S2D_DIAG_ROOT>/
+├── 4DEnVarOcn/          # E3SM S2D with 4DEnVar ocean initial conditions
+├── JRA55_FOSIRL/        # E3SM S2D with JRA55/FOSIRL ocean/sea-ice ICs
+├── Reanalysis/          # E3SM S2D reanalysis-initialized hindcasts (formerly BruteForce)
+├── CESM-SMYLE/          # CESM-SMYLE benchmark hindcasts
+├── NMME/                # Multi-model NMME SST benchmark runs
+├── observations/        # Observational reference products (ERA5, HadISST, C3S, GPCP)
+├── multimodel/          # Cross-experiment combined metrics and teleconnections
+└── tmp/                 # File inventories, manifests, and workflow logs
+```
+
+### NetCDF File Naming Conventions
+Within each experiment or multi-model directory, subdirectories partition datasets by diagnostic type using deterministic naming patterns:
+
+| Diagnostic Area | Directory Path | File Naming Pattern & Example |
+|:---|:---|:---|
+| **Lead-Time ACC** | `<source>/leadtime_acc/skill/{realm}/{field}/` | `{source}_{field}_{realm}_init{month:02d}_{start}_{end}.nc`<br>*(e.g., `4DEnVarOcn_PRECT_atm_init05_1980_2011.nc`)* |
+| **Lead-Time RMSE** | `<source>/leadtime_rmse/inputs/atm/{field}/`<br>`<source>/leadtime_acc/comparison/atm/direct_rmse/{field}/` | Inputs: `{source}_{field}_init{month:02d}_years_{start}-{end}_ny{N}.nc`<br>Skill: `{source}_{field}_direct_rmse_init{month:02d}_years_{start}-{end}.nc` |
+| **Teleconnections** | `multimodel/leadtime_telec/`<br>`<source>/leadtime_telec/`<br>`observations/leadtime_telec/` | `teleconnection_{index}_{variable}_verify{start}_{end}.nc`<br>*(e.g., `teleconnection_Nino34_TREFHT_verify1981_2011.nc`, `teleconnection_AMO_PSL_verify1981_2011.nc`)* |
+| **Modes of Var** | `<source>/modes_variability/` | EOF: `{source}_{mode}_eof_pattern.nc`<br>PC Time Series: `{source}_{mode}_pc_index.nc` |
+| **SST & ELI** | `<source>/sst_index/`<br>`<source>/eli/` | Time Series: `{source}_{index}_monthly_ts.nc`<br>Skill: `{source}_{index}_seasonal_acc_rmse.nc` |
+| **Initial Shock** | `<source>/initial_shock/` | Shock Metrics: `init{month:02d}_{start}_{end}.nc`<br>*(e.g., `init05_1980_2011.nc`, `init11_1980_2011.nc`)* |
+
+### Figure Naming Conventions (`FIGURE_OUTDIR`)
+All diagnostic plots are published into a unified web-accessible root (e.g., `/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/`) with systematic names matching the notebook suite:
+
+| Diagnostic Group | Notebook | Figure Filename Pattern | Example Figures |
+|:---|:---:|:---|:---|
+| **Atmospheric ACC** | `1a` | `fig_1a_{field}_{metric}.png` | `fig_1a_prect_acc_compare.png`, `fig_1a_prect_acc_difference.png` |
+| **Land ACC** | `1b` | `fig_1b_{field}_{metric}.png` | `fig_1b_tws_acc.png`, `fig_1b_h2osoi_acc_difference.png` |
+| **Spatial RMSE** | `2a` | `fig_2a_{field}_rmse_{region}.png` | `fig_2a_prect_rmse_global.png`, `fig_2a_prect_rmse_conus.png` |
+| **Multi-Model RMSE** | `2b` | `fig_2b_{field}_rmse_{type}_{init}.png` | `fig_2b_prect_rmse_compare_global.png`, `fig_2b_prect_rmse_difference_compare_init05.png` |
+| **SST Indices** | `3a`, `3b` | `fig_3a_{index}_skill_ts.png`<br>`fig_3b_teleconnection_{index}_{var}.png` | `fig_3a_nino34_skill_ts.png`, `fig_3b_teleconnection_nino34_trefht.png` |
+| **Modes of Var** | `4a`, `4b` | `fig_4a_{mode}_{type}.png`<br>`fig_4b_teleconnection_{mode}_{var}.png` | `fig_4a_pdo_eof_pattern.png`, `fig_4b_teleconnection_nao_prect.png` |
+| **ELI Diagnostics** | `5a–c` | `fig_5a_eli_skill_ts.png`<br>`fig_5c_teleconnection_eli_{var}.png` | `fig_5a_eli_skill_ts.png`, `fig_5c_teleconnection_eli_trefht.png` |
+| **Initial Shock** | `6a`, `6b` | `fig_6a_shock_timeseries_{var}.png`<br>`fig_6b_shock_index_{var}.png` | `fig_6a_shock_timeseries_trefht.png`, `fig_6b_shock_index_prect.png` |
+
+These figures are automatically cataloged by [`7_run_viewer_webpage.ipynb`](jupyter/7_run_viewer_webpage.ipynb) into `manifest.json` and rendered into the interactive web viewer `index.html`.
 
 ## Installation
 
