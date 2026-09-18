@@ -45,19 +45,19 @@ The primary evaluation workflows are organized sequentially under the [`jupyter/
 | Notebook | Focus Area | Description |
 |---|---|---|
 | [`0_run_cesm_smyle_benchmark.ipynb`](jupyter/0_run_cesm_smyle_benchmark.ipynb) | Benchmark Data | Dask-distributed preprocessing of CESM-SMYLE hindcasts |
-| [`1a_refactor_atm_leadtime_acc_skill_map.ipynb`](jupyter/1a_refactor_atm_leadtime_acc_skill_map.ipynb) | Atmospheric Skill | Lead-time anomaly correlation coefficient (ACC) maps |
-| [`1b_refactor_lnd_leadtime_acc_skill_map.ipynb`](jupyter/1b_refactor_lnd_leadtime_acc_skill_map.ipynb) | Land Skill | Land surface lead-time ACC maps (soil moisture, runoff, etc.) |
-| [`2a_refactor_leadtime_rmse_skill_map.ipynb`](jupyter/2a_refactor_leadtime_rmse_skill_map.ipynb) | Error Maps | Spatial root mean square error (RMSE) skill maps |
-| [`2b_refactor_leadtime_rmse_compare.ipynb`](jupyter/2b_refactor_leadtime_rmse_compare.ipynb) | Model Comparison | Multi-model RMSE comparison and model difference metrics |
-| [`3a_refactor_sst_skill_ts.ipynb`](jupyter/3a_refactor_sst_skill_ts.ipynb) | Ocean Skill | SST index skill time series (E3SM, CESM-SMYLE, NMME) |
-| [`3b_refactor_sst_telecon.ipynb`](jupyter/3b_refactor_sst_telecon.ipynb) | Teleconnections | Sea surface temperature teleconnection diagnostics |
-| [`4a_refactor_mov_analysis.ipynb`](jupyter/4a_refactor_mov_analysis.ipynb) | Modes of Variability | EOF projection and index calculation (PDO, AMO, NAO) |
-| [`4b_refactor_mov_telecon.ipynb`](jupyter/4b_refactor_mov_telecon.ipynb) | Teleconnections | Modes of variability climate teleconnection patterns |
-| [`5a_refactor_eli_skill_ts.ipynb`](jupyter/5a_refactor_eli_skill_ts.ipynb) | Tropical Pacific | Equatorial Longitude Index (ELI) skill time series |
-| [`5b_refactor_eli_diagnostics.ipynb`](jupyter/5b_refactor_eli_diagnostics.ipynb) | ELI Diagnostics | Native & regridded ELI diagnostics across starts |
-| [`5c_refactor_eli_telecon.ipynb`](jupyter/5c_refactor_eli_telecon.ipynb) | Teleconnections | ELI precipitation and temperature teleconnections |
-| [`6a_refactor_shock_ts.ipynb`](jupyter/6a_refactor_shock_ts.ipynb) | Initialization Shock | Lead-dependent drift and initialization shock time series |
-| [`6b_refactor_shock_index.ipynb`](jupyter/6b_refactor_shock_index.ipynb) | Shock Indices | Initialization shock metrics and multi-model indices |
+| [`1a_atm_leadtime_acc_skill_map.ipynb`](jupyter/1a_atm_leadtime_acc_skill_map.ipynb) | Atmospheric Skill | Lead-time anomaly correlation coefficient (ACC) maps |
+| [`1b_lnd_leadtime_acc_skill_map.ipynb`](jupyter/1b_lnd_leadtime_acc_skill_map.ipynb) | Land Skill | Land surface lead-time ACC maps (soil moisture, runoff, etc.) |
+| [`2a_leadtime_rmse_skill_map.ipynb`](jupyter/2a_leadtime_rmse_skill_map.ipynb) | Error Maps | Spatial root mean square error (RMSE) skill maps |
+| [`2b_leadtime_rmse_compare.ipynb`](jupyter/2b_leadtime_rmse_compare.ipynb) | Model Comparison | Multi-model RMSE comparison and model difference metrics |
+| [`3a_sst_skill_ts.ipynb`](jupyter/3a_sst_skill_ts.ipynb) | Ocean Skill | SST index skill time series (E3SM, CESM-SMYLE, NMME) |
+| [`3b_sst_telecon.ipynb`](jupyter/3b_sst_telecon.ipynb) | Teleconnections | Sea surface temperature teleconnection diagnostics |
+| [`4a_mov_analysis.ipynb`](jupyter/4a_mov_analysis.ipynb) | Modes of Variability | EOF projection and index calculation (PDO, AMO, NAO) |
+| [`4b_mov_telecon.ipynb`](jupyter/4b_mov_telecon.ipynb) | Teleconnections | Modes of variability climate teleconnection patterns |
+| [`5a_eli_skill_ts.ipynb`](jupyter/5a_eli_skill_ts.ipynb) | Tropical Pacific | Equatorial Longitude Index (ELI) skill time series |
+| [`5b_eli_diagnostics.ipynb`](jupyter/5b_eli_diagnostics.ipynb) | ELI Diagnostics | Native & regridded ELI diagnostics across starts |
+| [`5c_eli_telecon.ipynb`](jupyter/5c_eli_telecon.ipynb) | Teleconnections | ELI precipitation and temperature teleconnections |
+| [`6a_shock_ts.ipynb`](jupyter/6a_shock_ts.ipynb) | Initialization Shock | Lead-dependent drift and initialization shock time series |
+| [`6b_shock_index.ipynb`](jupyter/6b_shock_index.ipynb) | Shock Indices | Initialization shock metrics and multi-model indices |
 | [`7_run_viewer_webpage.ipynb`](jupyter/7_run_viewer_webpage.ipynb) | Gallery Webpage | Interactive HTML diagnostics viewer generator |
 
 ## Interactive Web Viewer

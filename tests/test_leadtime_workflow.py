@@ -21,7 +21,7 @@ from esp_lab.utils.netcdf_utils import atomic_to_netcdf, load_netcdf
 from esp_lab.utils.resource_utils import ResourceTracker
 
 
-NOTEBOOK = Path(__file__).parents[1] / "jupyter/1a_refactor_atm_leadtime_acc_skill_map.ipynb"
+NOTEBOOK = Path(__file__).parents[1] / "jupyter/1a_atm_leadtime_acc_skill_map.ipynb"
 
 
 def _cell(index):

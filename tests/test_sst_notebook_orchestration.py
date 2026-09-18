@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 import xarray as xr
 
-NOTEBOOK = Path(__file__).resolve().parents[1] / 'jupyter/3a_refactor_sst_skill_ts.ipynb'
+NOTEBOOK = Path(__file__).resolve().parents[1] / 'jupyter/3a_sst_skill_ts.ipynb'
 
 
 def source(index):

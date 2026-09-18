@@ -13,7 +13,7 @@ from esp_lab import land_skill
 LAND_NOTEBOOK = (
     Path(__file__).parents[1]
     / "jupyter"
-    / "1b_refactor_lnd_leadtime_acc_skill_map.ipynb"
+    / "1b_lnd_leadtime_acc_skill_map.ipynb"
 )
 
 

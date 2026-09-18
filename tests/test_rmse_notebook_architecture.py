@@ -5,8 +5,8 @@ from IPython.core.interactiveshell import InteractiveShell
 
 
 NOTEBOOKS = (
-    Path("jupyter/2a_refactor_leadtime_rmse_skill_map.ipynb"),
-    Path("jupyter/2b_refactor_leadtime_rmse_compare.ipynb"),
+    Path("jupyter/2a_leadtime_rmse_skill_map.ipynb"),
+    Path("jupyter/2b_leadtime_rmse_compare.ipynb"),
 )
 
 

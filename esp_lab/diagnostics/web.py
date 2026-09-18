@@ -33,6 +33,15 @@ def _humanize_figure_name(filename: str) -> str:
         "1b": "1b",
         "2a": "2a",
         "2b": "2b",
+        "3a": "3a",
+        "3b": "3b",
+        "4a": "4a",
+        "4b": "4b",
+        "5a": "5a",
+        "5b": "5b",
+        "5c": "5c",
+        "6a": "6a",
+        "6b": "6b",
         "acc": "ACC",
         "conus": "CONUS",
         "eli": "ELI",
@@ -119,10 +128,13 @@ def _infer_metric(filename: str) -> str:
 def _infer_mode(filename: str) -> str:
     """Infer a broad diagnostic group for a figure without metadata."""
     stem = Path(filename).stem.lower()
+    stem_clean = re.sub(r"^fig_\d[a-z]_", "", stem)
     for mode in sorted(CLIMATE_MODES, key=len, reverse=True):
         mode_lower = mode.lower()
         if (
             stem.startswith(f"fig_{mode_lower}_")
+            or stem_clean.startswith(f"{mode_lower}_")
+            or stem_clean == mode_lower
             or f"_{mode_lower}_" in stem
             or stem.endswith(f"_{mode_lower}")
             or stem == f"fig_{mode_lower}"
@@ -156,7 +168,7 @@ def _infer_mode(filename: str) -> str:
         ("tsa", "TSA"),
         ("tni", "TNI"),
     ):
-        if token in stem:
+        if token in stem_clean or token in stem:
             return label
     return "Other"
 
@@ -168,19 +180,23 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     path_str = str(path_obj).lower()
     metric_lower = metric.lower()
 
-    if "initial_shock" in path_str or "shock" in stem:
+    if "initial_shock" in path_str or "shock" in stem or stem.startswith(("fig_6a_", "fig_6b_")):
         return "INITIAL_SHOCK"
     if path_str.startswith("teleconnections") or stem.startswith("teleconnection_"):
         return "TELECONNECTIONS"
-    if "eli" in stem or "eli" in metric_lower:
+    if stem.startswith(("fig_5a_", "fig_5b_", "fig_5c_")) or "eli" in stem or "eli" in metric_lower:
         return "ELI"
     if stem.startswith("fig_tc_") or "track_density" in stem:
         return "TC"
-    if mode.upper() in CLIMATE_MODES or metric_lower in {
-        "eof_patterns",
-        "global_teleconnection_patterns",
-        "pc_time_series",
-    }:
+    if (
+        stem.startswith(("fig_4a_", "fig_4b_"))
+        or mode.upper() in CLIMATE_MODES
+        or metric_lower in {
+            "eof_patterns",
+            "global_teleconnection_patterns",
+            "pc_time_series",
+        }
+    ):
         return "MOV"
     if (
         stem.startswith(("fig_1a_", "fig_1b_"))
@@ -213,7 +229,7 @@ def _infer_shortname_and_type(
 
     if group == "LEAD_ACC":
         for v in ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"]:
-            if v.lower() in stem_lower:
+            if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
                 break
         if "compare" in stem_lower:
@@ -231,7 +247,7 @@ def _infer_shortname_and_type(
 
     elif group == "LEAD_RMSE":
         for v in ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"]:
-            if v.lower() in stem_lower:
+            if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
                 break
         if "compare_conus" in stem_lower:
@@ -266,8 +282,8 @@ def _infer_shortname_and_type(
             ("nino12", "Niño1+2"),
             ("nino3", "Niño3"),
             ("nino4", "Niño4"),
-            ("oni", "ONI"),
             ("roni", "RONI"),
+            ("oni", "ONI"),
             ("pacwrampool", "PACWARMPOOL"),
             ("pacwarmpool", "PACWARMPOOL"),
             ("atlmdr", "ATLMDR"),

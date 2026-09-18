@@ -9,19 +9,19 @@ skill evaluation, modes-of-variability analysis, and interactive diagnostics vie
 | Notebook | Focus Area | Description |
 |---|---|---|
 | `0_run_cesm_smyle_benchmark.ipynb` | Preprocessing | Distributed Dask preprocessing for CESM-SMYLE benchmark data |
-| `1a_refactor_atm_leadtime_acc_skill_map.ipynb` | Atmospheric Skill | Atmospheric lead-time ACC skill maps across seasons and leads |
-| `1b_refactor_lnd_leadtime_acc_skill_map.ipynb` | Land Skill | Land surface lead-time ACC skill maps |
-| `2a_refactor_leadtime_rmse_skill_map.ipynb` | Error Diagnostics | Lead-time RMSE spatial maps |
-| `2b_refactor_leadtime_rmse_compare.ipynb` | Multi-Model | Lead-time RMSE comparison and model difference metrics |
-| `3a_refactor_sst_skill_ts.ipynb` | Ocean Skill | SST index skill time series (E3SM, CESM-SMYLE, NMME) |
-| `3b_refactor_sst_telecon.ipynb` | Teleconnections | SST teleconnection diagnostics and ENSO patterns |
-| `4a_refactor_mov_analysis.ipynb` | Modes of Variability | Modes-of-variability EOF projection and index calculations |
-| `4b_refactor_mov_telecon.ipynb` | Teleconnections | Modes-of-variability teleconnections with precipitation/temp |
-| `5a_refactor_eli_skill_ts.ipynb` | Tropical Pacific | Equatorial Longitude Index (ELI) skill time series |
-| `5b_refactor_eli_diagnostics.ipynb` | Tropical Pacific | Native and regridded ELI diagnostics |
-| `5c_refactor_eli_telecon.ipynb` | Teleconnections | ELI teleconnection patterns |
-| `6a_refactor_shock_ts.ipynb` | Drift & Shock | Initialization shock and lead-dependent drift time series |
-| `6b_refactor_shock_index.ipynb` | Drift & Shock | Initialization shock metrics and multi-model indices |
+| `1a_atm_leadtime_acc_skill_map.ipynb` | Atmospheric Skill | Atmospheric lead-time ACC skill maps across seasons and leads |
+| `1b_lnd_leadtime_acc_skill_map.ipynb` | Land Skill | Land surface lead-time ACC skill maps |
+| `2a_leadtime_rmse_skill_map.ipynb` | Error Diagnostics | Lead-time RMSE spatial maps |
+| `2b_leadtime_rmse_compare.ipynb` | Multi-Model | Lead-time RMSE comparison and model difference metrics |
+| `3a_sst_skill_ts.ipynb` | Ocean Skill | SST index skill time series (E3SM, CESM-SMYLE, NMME) |
+| `3b_sst_telecon.ipynb` | Teleconnections | SST teleconnection diagnostics and ENSO patterns |
+| `4a_mov_analysis.ipynb` | Modes of Variability | Modes-of-variability EOF projection and index calculations |
+| `4b_mov_telecon.ipynb` | Teleconnections | Modes-of-variability teleconnections with precipitation/temp |
+| `5a_eli_skill_ts.ipynb` | Tropical Pacific | Equatorial Longitude Index (ELI) skill time series |
+| `5b_eli_diagnostics.ipynb` | Tropical Pacific | Native and regridded ELI diagnostics |
+| `5c_eli_telecon.ipynb` | Teleconnections | ELI teleconnection patterns |
+| `6a_shock_ts.ipynb` | Drift & Shock | Initialization shock and lead-dependent drift time series |
+| `6b_shock_index.ipynb` | Drift & Shock | Initialization shock metrics and multi-model indices |
 | `7_run_viewer_webpage.ipynb` | Interactive Web | Generate interactive diagnostics viewer webpage |
 
 ## Interactive Web Portal
