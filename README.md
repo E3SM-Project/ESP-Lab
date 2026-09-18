@@ -100,20 +100,24 @@ Within each experiment or multi-model directory, subdirectories partition datase
 | **Initial Shock** | `<source>/initial_shock/` | Shock Metrics: `init{month:02d}_{start}_{end}.nc`<br>*(e.g., `init05_1980_2011.nc`, `init11_1980_2011.nc`)* |
 
 ### Figure Naming Conventions (`FIGURE_OUTDIR`)
-All diagnostic plots are published into a unified web-accessible root (e.g., `/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/`) with systematic names matching the notebook suite:
+All diagnostic plots are published into a unified web-accessible root (e.g., `/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/`) with semantic, self-describing scientific naming:
 
 | Diagnostic Group | Notebook | Figure Filename Pattern | Example Figures |
 |:---|:---:|:---|:---|
-| **Atmospheric ACC** | `1a` | `fig_1a_{field}_{metric}.png` | `fig_1a_prect_acc_compare.png`, `fig_1a_prect_acc_difference.png` |
-| **Land ACC** | `1b` | `fig_1b_{field}_{metric}.png` | `fig_1b_tws_acc.png`, `fig_1b_h2osoi_acc_difference.png` |
-| **Spatial RMSE** | `2a` | `fig_2a_{field}_rmse_{region}.png` | `fig_2a_prect_rmse_global.png`, `fig_2a_prect_rmse_conus.png` |
-| **Multi-Model RMSE** | `2b` | `fig_2b_{field}_rmse_{type}_{init}.png` | `fig_2b_prect_rmse_compare_global.png`, `fig_2b_prect_rmse_difference_compare_init05.png` |
-| **SST Indices** | `3a`, `3b` | `fig_3a_{index}_skill_ts.png`<br>`fig_3b_teleconnection_{index}_{var}.png` | `fig_3a_nino34_skill_ts.png`, `fig_3b_teleconnection_nino34_trefht.png` |
-| **Modes of Var** | `4a`, `4b` | `fig_4a_{mode}_{type}.png`<br>`fig_4b_teleconnection_{mode}_{var}.png` | `fig_4a_pdo_eof_pattern.png`, `fig_4b_teleconnection_nao_prect.png` |
-| **ELI Diagnostics** | `5a–c` | `fig_5a_eli_skill_ts.png`<br>`fig_5c_teleconnection_eli_{var}.png` | `fig_5a_eli_skill_ts.png`, `fig_5c_teleconnection_eli_trefht.png` |
-| **Initial Shock** | `6a`, `6b` | `fig_6a_shock_timeseries_{var}.png`<br>`fig_6b_shock_index_{var}.png` | `fig_6a_shock_timeseries_trefht.png`, `fig_6b_shock_index_prect.png` |
+| **Atmospheric ACC** | `1a` | `fig_atm_acc_{field}_{metric}.png` | `fig_atm_acc_prect_acc_compare.png`, `fig_atm_acc_prect_acc_difference.png` |
+| **Land ACC** | `1b` | `fig_lnd_acc_{field}_{metric}.png` | `fig_lnd_acc_tws_acc.png`, `fig_lnd_acc_h2osoi_acc_difference.png` |
+| **Spatial RMSE** | `2a` | `fig_atm_rmse_{field}_rmse_{region}.png` | `fig_atm_rmse_prect_rmse_global.png`, `fig_atm_rmse_prect_rmse_conus.png` |
+| **Multi-Model RMSE** | `2b` | `fig_rmse_compare_{field}_rmse_{type}_{init}.png` | `fig_rmse_compare_prect_rmse_compare_global.png`, `fig_rmse_compare_prect_rmse_difference_compare_init05.png` |
+| **SST Indices** | `3a` | `fig_sst_index_{index}_{metric}.png` | `fig_sst_index_nino34_acc_skill.png`, `fig_sst_index_nino34_time_series.png` |
+| **SST Teleconnections** | `3b` | `fig_teleconnection_{index}_{var}_{metric}.png` | `fig_teleconnection_NINO34_TREFHT_summary.png`, `fig_teleconnection_AMO_H2OSNO_summary.png` |
+| **Modes of Var** | `4a` | `fig_mov_{mode}_{metric}.png` | `fig_mov_nam_skill.png`, `fig_mov_pdo_pc_time_series.png` |
+| **MOV Teleconnections** | `4b` | `fig_teleconnection_{mode}_{var}_{metric}.png` | `fig_teleconnection_NAO_PRECT_summary.png`, `fig_teleconnection_NAM_PSL_summary.png` |
+| **ELI Diagnostics** | `5a`, `5b` | `fig_eli_{metric}.png` | `fig_eli_multimodel_acc_nrmse_skill.png`, `fig_eli_nmme_lead_time_benchmark.png` |
+| **ELI Teleconnections** | `5c` | `fig_teleconnection_{index}_{var}_{metric}.png` | `fig_teleconnection_ELI_PRECT_summary.png`, `fig_teleconnection_ELI_TREFHT_summary.png` |
+| **Initial Shock Evolution** | `6a` | `fig_shock_ts_{field}_{detail}.png` | `fig_shock_ts_prect_init05-init11_1980_2011_seasonal_absolute_normalized_change.png` |
+| **Initial Shock Error** | `6b` | `fig_shock_error_{field}_{detail}.png` | `fig_shock_error_trefht_init1980-2011_clim1981-2010_monthly_normalized_rmse.png` |
 
-These figures are automatically cataloged by [`7_run_viewer_webpage.ipynb`](jupyter/7_run_viewer_webpage.ipynb) into `manifest.json` and rendered into the interactive web viewer `index.html`.
+These figures are automatically cataloged by [`7_run_viewer_webpage.ipynb`](jupyter/7_run_viewer_webpage.ipynb) into `figures.json` and rendered into the interactive web viewer `index.html`.
 
 ## Installation
 
