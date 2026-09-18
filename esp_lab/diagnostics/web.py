@@ -368,20 +368,18 @@ def _infer_shortname_and_type(
             btn_type = "ELI Skill"
 
     elif group == "INITIAL_SHOCK":
+        for v in ["PRECT", "TREFHT", "TS"]:
+            if f"_{v.lower()}_" in f"_{stem_lower}_" or f"_{v.lower()}." in f"_{stem_lower}." or f"-{v.lower()}_" in f"-{stem_lower}_":
+                shortname = v
+                break
         if stem_lower.startswith(("fig_shock_error_", "fig_6b_")) or "initial_shock_rmse_mae" in file_lower or "normalized_rmse" in stem_lower:
-            shortname = "Error Heatmaps"
-            var = "TREFHT" if "trefht" in stem_lower else "TS"
             if "lead-year-1" in stem_lower:
-                btn_type = f"{var} Lead Y1"
+                btn_type = "Lead Y1 Heatmap"
             elif "lead-year-2" in stem_lower:
-                btn_type = f"{var} Lead Y2"
+                btn_type = "Lead Y2 Heatmap"
             else:
-                btn_type = f"{var} Monthly"
+                btn_type = "Monthly Heatmap"
         else:
-            for v in ["PRECT", "TREFHT", "TS"]:
-                if f"_{v.lower()}_" in f"_{stem_lower}_":
-                    shortname = v
-                    break
             if (
                 "absolute_normalized_change" in stem_lower
                 and "seasonal" in stem_lower
@@ -2580,16 +2578,17 @@ def _build_html_template(manifest: dict) -> str:
                 else if (stemLower.includes("dual_axis_jja")) btnType = "Dual-Axis JJA";
                 else btnType = "ELI Skill";
             } else if (group === "INITIAL_SHOCK") {
-                if (stemLower.startsWith("fig_shock_error_") || stemLower.startsWith("fig_6b_") || fileLower.includes("initial_shock_rmse_mae") || stemLower.includes("normalized_rmse")) {
-                    shortname = "Error Heatmaps";
-                    const v = stemLower.includes("trefht") ? "TREFHT" : "TS";
-                    if (stemLower.includes("lead-year-1")) btnType = `${v} Lead Y1`;
-                    else if (stemLower.includes("lead-year-2")) btnType = `${v} Lead Y2`;
-                    else btnType = `${v} Monthly`;
-                } else {
-                    for (const v of ["PRECT", "TREFHT", "TS"]) {
-                        if (stemLower.includes(v.toLowerCase())) { shortname = v; break; }
+                for (const v of ["PRECT", "TREFHT", "TS"]) {
+                    if (stemLower.includes(`_${v.toLowerCase()}_`) || stemLower.includes(`_${v.toLowerCase()}.`) || stemLower.includes(`-${v.toLowerCase()}_`)) {
+                        shortname = v;
+                        break;
                     }
+                }
+                if (stemLower.startsWith("fig_shock_error_") || stemLower.startsWith("fig_6b_") || fileLower.includes("initial_shock_rmse_mae") || stemLower.includes("normalized_rmse")) {
+                    if (stemLower.includes("lead-year-1")) btnType = "Lead Y1 Heatmap";
+                    else if (stemLower.includes("lead-year-2")) btnType = "Lead Y2 Heatmap";
+                    else btnType = "Monthly Heatmap";
+                } else {
                     if (stemLower.includes("absolute_normalized_change") && stemLower.includes("seasonal")) btnType = "Seasonal Abs Change";
                     else if (stemLower.includes("absolute_normalized_change")) btnType = "Abs Change";
                     else if (stemLower.includes("signed_normalized_change")) btnType = "Signed Change";
