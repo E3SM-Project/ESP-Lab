@@ -357,13 +357,13 @@ def _infer_shortname_and_type(
         elif "time_series" in stem_lower:
             btn_type = "Time Series"
         elif "drift_climatology" in stem_lower:
-            btn_type = "Drift Climatology"
+            btn_type = "Leadtime Climatology"
         elif "lead_time_benchmark" in stem_lower:
             btn_type = "NMME Benchmark"
         elif "dual_axis_djf" in stem_lower:
-            btn_type = "Dual-Axis DJF"
+            btn_type = "Niño3.4 vs ELI (DJF)"
         elif "dual_axis_jja" in stem_lower:
-            btn_type = "Dual-Axis JJA"
+            btn_type = "Niño3.4 vs ELI (JJA)"
         else:
             btn_type = "ELI Skill"
 
@@ -2356,7 +2356,7 @@ def _build_html_template(manifest: dict) -> str:
             "LEAD_RMSE": "Root Mean Square Error (RMSE) skill maps, CONUS/Global regional summaries, and model comparisons.",
             "SST_INDEX": "Skill curves and ensemble-mean historical time series for tropical Pacific, Atlantic, and Indian ocean climate indices.",
             "MOV": "Principal modes of climate variability (ENSO, NAO, PDO, PNA, SAM, etc.) with EOF spatial patterns, teleconnections, and PC series.",
-            "ELI": "Ensemble ENSO Longitude Index (ELI) skill scores, tracking metrics, lead-time drift climatologies, and NMME benchmarks.",
+            "ELI": "Ensemble ENSO Longitude Index (ELI) skill scores, tracking metrics, lead-time climatologies, and NMME benchmarks.",
             "INITIAL_SHOCK": "Quantification of initialization shock, step changes between seasonal start dates, scatter distributions, and error heatmaps.",
             "TELECONNECTIONS": "Global climate mode teleconnection pattern correlation maps, comprehensive summaries, and Taylor diagrams.",
             "LEAD_DRIFT": "Lead-time drift analysis and climatology metrics.",
@@ -2586,10 +2586,10 @@ def _build_html_template(manifest: dict) -> str:
                 shortname = "ELI Diagnostics";
                 if (stemLower.includes("acc_nrmse_skill")) btnType = "ACC / nRMSE Skill";
                 else if (stemLower.includes("time_series")) btnType = "Time Series";
-                else if (stemLower.includes("drift_climatology")) btnType = "Drift Climatology";
+                else if (stemLower.includes("drift_climatology")) btnType = "Leadtime Climatology";
                 else if (stemLower.includes("lead_time_benchmark")) btnType = "NMME Benchmark";
-                else if (stemLower.includes("dual_axis_djf")) btnType = "Dual-Axis DJF";
-                else if (stemLower.includes("dual_axis_jja")) btnType = "Dual-Axis JJA";
+                else if (stemLower.includes("dual_axis_djf")) btnType = "Niño3.4 vs ELI (DJF)";
+                else if (stemLower.includes("dual_axis_jja")) btnType = "Niño3.4 vs ELI (JJA)";
                 else btnType = "ELI Skill";
             } else if (group === "INITIAL_SHOCK") {
                 for (const v of ["PRECT", "TREFHT", "TS"]) {
