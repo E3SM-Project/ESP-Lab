@@ -278,9 +278,10 @@ def test_canonical_prefixes_classification(tmp_path):
         ("fig_5c_teleconnection_eli_prect_corr_map.png", "TELECONNECTIONS", "ELI · PRECT", "Correlation Map"),
         ("fig_teleconnection_eli_prect_corr_map.png", "TELECONNECTIONS", "ELI · PRECT", "Correlation Map"),
         ("fig_6a_prect_absolute_normalized_change_seasonal.png", "INITIAL_SHOCK", "PRECT", "Seasonal Abs Change"),
-        ("fig_shock_ts_prect_absolute_normalized_change_seasonal.png", "INITIAL_SHOCK", "PRECT", "Seasonal Abs Change"),
-        ("fig_6b_shock_metrics_heatmap_trefht_lead-year-1.png", "INITIAL_SHOCK", "Error Heatmaps", "TREFHT Lead Y1"),
-        ("fig_shock_error_trefht_lead-year-1.png", "INITIAL_SHOCK", "Error Heatmaps", "TREFHT Lead Y1"),
+        ("fig_6b_shock_metrics_heatmap_trefht_lead-year-1.png", "INITIAL_SHOCK", "TREFHT", "Lead Y1 Heatmap"),
+        ("fig_shock_error_trefht_lead-year-1.png", "INITIAL_SHOCK", "TREFHT", "Lead Y1 Heatmap"),
+        ("fig_shock_error_ts_lead-year-2.png", "INITIAL_SHOCK", "TS", "Lead Y2 Heatmap"),
+        ("fig_shock_error_ts_monthly.png", "INITIAL_SHOCK", "TS", "Monthly Heatmap"),
     ]
     for fn, expected_grp, expected_shortname, expected_btn_type in test_files:
         (tmp_path / fn).touch()
