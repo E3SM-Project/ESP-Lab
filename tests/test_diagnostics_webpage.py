@@ -244,6 +244,12 @@ def test_canonical_prefixes_classification(tmp_path):
         ("fig_4a_pdo_eof_patterns_year1.png", "MOV", "PDO", "EOF Year 1"),
         ("fig_4a_nao_global_teleconnection_patterns_init05.png", "MOV", "NAO", "Telecon May"),
         ("fig_5a_eli_multimodel_acc_nrmse_skill.png", "ELI", "ELI Diagnostics", "ACC / nRMSE Skill"),
+        ("fig_3b_teleconnection_nino34_prect_corr_map.png", "TELECONNECTIONS", "Niño3.4 · PRECT", "Correlation Map"),
+        ("fig_4b_teleconnection_pdo_prect_corr_map.png", "TELECONNECTIONS", "PDO · PRECT", "Correlation Map"),
+        ("fig_5b_eli_drift_climatology.png", "ELI", "ELI Diagnostics", "Drift Climatology"),
+        ("fig_5c_teleconnection_eli_prect_corr_map.png", "TELECONNECTIONS", "ELI · PRECT", "Correlation Map"),
+        ("fig_6a_prect_absolute_normalized_change_seasonal.png", "INITIAL_SHOCK", "PRECT", "Seasonal Abs Change"),
+        ("fig_6b_shock_metrics_heatmap_trefht_lead-year-1.png", "INITIAL_SHOCK", "Error Heatmaps", "TREFHT Lead Y1"),
     ]
     for fn, expected_grp, expected_shortname, expected_btn_type in test_files:
         (tmp_path / fn).touch()
