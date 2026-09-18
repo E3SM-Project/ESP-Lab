@@ -170,6 +170,10 @@ def test_infer_shortname_and_type():
     assert s == "PRECT"
     assert t == "ACC Skill Map"
 
+    s, t = _infer_shortname_and_type("fig_atm_acc_prect_acc_distribution.png", "LEAD_ACC")
+    assert s == "PRECT"
+    assert t == "Sample Period Sensitivity"
+
     # LEAD_RMSE
     s, t = _infer_shortname_and_type("fig_leadtime_rmse_compare_conus_prect.png", "LEAD_RMSE")
     assert s == "PRECT"

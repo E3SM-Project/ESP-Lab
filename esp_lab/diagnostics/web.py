@@ -249,7 +249,7 @@ def _infer_shortname_and_type(
         elif "difference" in stem_lower or "diff" in stem_lower:
             btn_type = "Difference"
         elif "distribution" in stem_lower:
-            btn_type = "Record Length"
+            btn_type = "Sample Period Sensitivity"
         elif "sigmask" in stem_lower:
             btn_type = "Sigmask"
         elif "minus_reanalysis" in stem_lower:
@@ -2501,7 +2501,7 @@ def _build_html_template(manifest: dict) -> str:
                 }
                 if (stemLower.includes("compare")) btnType = "Model Compare";
                 else if (stemLower.includes("difference") || stemLower.includes("diff")) btnType = "Difference";
-                else if (stemLower.includes("distribution")) btnType = "Record Length";
+                else if (stemLower.includes("distribution")) btnType = "Sample Period Sensitivity";
                 else if (stemLower.includes("sigmask")) btnType = "Sigmask";
                 else if (stemLower.includes("minus_reanalysis")) btnType = "Minus Reanalysis";
                 else btnType = "ACC Skill Map";
