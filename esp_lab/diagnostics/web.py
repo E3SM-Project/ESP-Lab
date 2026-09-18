@@ -262,10 +262,20 @@ def _infer_shortname_and_type(
             if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
                 break
-        if "compare" in stem_lower and "conus" in stem_lower:
-            btn_type = "Compare (CONUS)"
-        elif "compare" in stem_lower and "global" in stem_lower:
-            btn_type = "Compare (Global)"
+        if "difference_compare" in stem_lower or "diff_compare" in stem_lower:
+            if "init05" in stem_lower:
+                btn_type = "Diff Compare (May)"
+            elif "init11" in stem_lower:
+                btn_type = "Diff Compare (Nov)"
+            else:
+                btn_type = "Diff Compare"
+        elif "difference_global" in stem_lower or "diff_global" in stem_lower:
+            if "init05" in stem_lower:
+                btn_type = "Diff Global (May)"
+            elif "init11" in stem_lower:
+                btn_type = "Diff Global (Nov)"
+            else:
+                btn_type = "Diff Global"
         elif "diff" in stem_lower and "compare" in stem_lower and "init05" in stem_lower:
             btn_type = "Diff Compare (May)"
         elif "diff" in stem_lower and "compare" in stem_lower and "init11" in stem_lower:
@@ -280,6 +290,10 @@ def _infer_shortname_and_type(
             btn_type = "Diff Global"
         elif "difference" in stem_lower or "diff" in stem_lower:
             btn_type = "Difference"
+        elif "compare" in stem_lower and "conus" in stem_lower:
+            btn_type = "Compare (CONUS)"
+        elif "compare" in stem_lower and "global" in stem_lower:
+            btn_type = "Compare (Global)"
         elif "conus" in stem_lower:
             btn_type = "CONUS RMSE"
         elif "global" in stem_lower:
@@ -2510,15 +2524,23 @@ def _build_html_template(manifest: dict) -> str:
                 for (const v of vars) {
                     if (stemLower.includes(v.toLowerCase())) { shortname = v; break; }
                 }
-                if (stemLower.includes("compare") && stemLower.includes("conus")) btnType = "Compare (CONUS)";
-                else if (stemLower.includes("compare") && stemLower.includes("global")) btnType = "Compare (Global)";
-                else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init05")) btnType = "Diff Compare (May)";
+                if (stemLower.includes("difference_compare") || stemLower.includes("diff_compare")) {
+                    if (stemLower.includes("init05")) btnType = "Diff Compare (May)";
+                    else if (stemLower.includes("init11")) btnType = "Diff Compare (Nov)";
+                    else btnType = "Diff Compare";
+                } else if (stemLower.includes("difference_global") || stemLower.includes("diff_global")) {
+                    if (stemLower.includes("init05")) btnType = "Diff Global (May)";
+                    else if (stemLower.includes("init11")) btnType = "Diff Global (Nov)";
+                    else btnType = "Diff Global";
+                } else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init05")) btnType = "Diff Compare (May)";
                 else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init11")) btnType = "Diff Compare (Nov)";
                 else if (stemLower.includes("diff") && stemLower.includes("global") && stemLower.includes("init05")) btnType = "Diff Global (May)";
                 else if (stemLower.includes("diff") && stemLower.includes("global") && stemLower.includes("init11")) btnType = "Diff Global (Nov)";
                 else if (stemLower.includes("diff") && stemLower.includes("compare")) btnType = "Diff Compare";
                 else if (stemLower.includes("diff") && stemLower.includes("global")) btnType = "Diff Global";
                 else if (stemLower.includes("difference") || stemLower.includes("diff")) btnType = "Difference";
+                else if (stemLower.includes("compare") && stemLower.includes("conus")) btnType = "Compare (CONUS)";
+                else if (stemLower.includes("compare") && stemLower.includes("global")) btnType = "Compare (Global)";
                 else if (stemLower.includes("conus")) btnType = "CONUS RMSE";
                 else if (stemLower.includes("global")) btnType = "Global RMSE";
                 else btnType = "RMSE Skill";
