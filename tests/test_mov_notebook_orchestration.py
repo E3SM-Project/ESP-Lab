@@ -10,7 +10,7 @@ from workflows.modes_of_variability import figure_config
 
 
 NOTEBOOK = (
-    Path(__file__).resolve().parents[1] / "jupyter" / "4a_refactor_mov_analysis.ipynb"
+    Path(__file__).resolve().parents[1] / "jupyter" / "4a_mov_analysis.ipynb"
 )
 
 
