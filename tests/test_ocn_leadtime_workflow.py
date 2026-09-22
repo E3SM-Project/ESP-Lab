@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from esp_lab import leadtime_prepared_cache, leadtime_skill_cache, stats
+from esp_lab import env_paths, leadtime_prepared_cache, leadtime_skill_cache, stats
 from esp_lab import leadtime_workflow as workflow
 from esp_lab.data_access_obs import mon_to_seas_obs
 from esp_lab.leadtime_validation import check_remove_drift_sample
@@ -56,6 +56,7 @@ def notebook_run(tmp_path):
         trackers.append(tracker)
         ns.update(
             np=np, xr=xr, cftime=cftime, os=os, Path=Path, stats=stats,
+            env_paths=env_paths,
             workflow_resources=tracker, leadtime_acc_dir=leadtime_acc_dir,
             atomic_to_netcdf=atomic_to_netcdf, load_netcdf=load_netcdf,
             check_remove_drift_sample=check_remove_drift_sample,
