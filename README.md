@@ -82,6 +82,8 @@ ESP-Lab includes a responsive HTML web generator (`esp_lab.diagnostics.web`) tha
 ## Data Organization & Output Conventions
 Diagnostic outputs are structured in two complementary layers: analysis NetCDF datasets (`S2D_DIAG_ROOT`) and public web figures (`FIGURE_OUTDIR`).
 
+All notebooks resolve their machine-specific roots (`S2D_DIAG_ROOT`, `FIGURE_OUTDIR`, the raw model archive, the obs archive, and the supplemental reference-data directory) through `esp_lab.env_paths`, which defaults to the paths documented below but can be overridden per account with `ESP_LAB_S2D_DIAG_ROOT`, `ESP_LAB_FIGURE_ROOT`, `ESP_LAB_RAW_MODEL_ROOT`, `ESP_LAB_OBS_ROOT`, and `ESP_LAB_DATA_ROOT` environment variables, so a different NERSC account can run the workflow without editing notebook source.
+
 ### Diagnostic Data Layout (`S2D_DIAG_ROOT`)
 The analysis archive follows an **experiment-first** and **observation-first** canonical structure:
 
