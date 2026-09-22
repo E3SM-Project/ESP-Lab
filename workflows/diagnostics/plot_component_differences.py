@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-04_plot_component_differences.py
+plot_component_differences.py
 =================================
 Step 4: Generate spatial and vertical diagnostic plots for priority IC
         variables using the ΔX NetCDF files from Step 3.
@@ -18,10 +18,10 @@ Plots produced per (date, component)
 
 Usage
 -----
-    python 04_plot_component_differences.py
-    python 04_plot_component_differences.py --full-campaign
-    python 04_plot_component_differences.py --date 1980-05-01-00000
-    python 04_plot_component_differences.py --components ocn lnd --top-n 10
+    python -m workflows.diagnostics.plot_component_differences
+    python -m workflows.diagnostics.plot_component_differences --full-campaign
+    python -m workflows.diagnostics.plot_component_differences --date 1980-05-01-00000
+    python -m workflows.diagnostics.plot_component_differences --components ocn lnd --top-n 10
 
 Outputs
 -------
@@ -47,11 +47,11 @@ import pandas as pd
 import xarray as xr
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _SCRIPT_DIR.parent.parent.parent
+_REPO_ROOT = _SCRIPT_DIR.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from .config import build_ic_config, load_config
+from .ic_config import build_ic_config, load_config
 
 # ---------------------------------------------------------------------------
 # Figure style (mirrors 5a_refactor style)
@@ -437,7 +437,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="IC Analysis Step 4: Generate spatial and vertical diagnostic plots."
     )
-    parser.add_argument("--config", default=str(_SCRIPT_DIR / "config.yaml"))
+    parser.add_argument("--config", default=str(_SCRIPT_DIR / "ic_config.yaml"))
     parser.add_argument("--full-campaign", action="store_true")
     parser.add_argument("--date", default=None)
     parser.add_argument("--components", nargs="+", default=None)

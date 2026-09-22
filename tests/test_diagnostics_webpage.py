@@ -241,6 +241,10 @@ def test_canonical_prefixes_classification(tmp_path):
     test_files = [
         ("fig_1a_prect_acc_compare.png", "LEAD_ACC", "PRECT", "Model Compare"),
         ("fig_atm_acc_prect_compare.png", "LEAD_ACC", "PRECT", "Model Compare"),
+        ("fig_ocn_acc_sst_acc_compare.png", "LEAD_ACC", "SST", "Model Compare"),
+        ("fig_ocn_rmse_sst_rmse_global.png", "LEAD_RMSE", "SST", "Global RMSE"),
+        ("fig_1b_atm_prect_rmse_conus.png", "LEAD_RMSE", "PRECT", "CONUS RMSE"),
+        ("fig_1c_ocn_sst_rmse_difference_compare_init05.png", "LEAD_RMSE", "SST", "Diff Compare (May)"),
         ("fig_1b_h2osoi_acc_difference.png", "LEAD_ACC", "H2OSOI", "Difference"),
         ("fig_lnd_acc_h2osoi_difference.png", "LEAD_ACC", "H2OSOI", "Difference"),
         ("fig_2a_prect_rmse_conus.png", "LEAD_RMSE", "PRECT", "CONUS RMSE"),
@@ -295,3 +299,35 @@ def test_canonical_prefixes_classification(tmp_path):
         assert fig_entry["shortname"] == expected_shortname, f"{fn} shortname mismatch"
         assert fig_entry["btn_type"] == expected_btn_type, f"{fn} btn_type mismatch"
 
+
+def test_regional_skill_section_preserves_each_region_and_refreshes_old_groups(tmp_path):
+    filenames = [
+        'fig_regional_acc_nrmse_land_tws_global.png',
+        'fig_regional_acc_nrmse_land_tws_na_box.png',
+        'fig_regional_acc_nrmse_atm_prect_conus.png',
+        'fig_regional_acc_nrmse_ocn_sst_nhex.png',
+    ]
+    for name in filenames:
+        (tmp_path / name).touch()
+    (tmp_path / 'figures.json').write_text(json.dumps({'figures': [{
+        'file': filenames[0], 'metric': 'regional_acc_nrmse_skill',
+        'group': 'LEAD_ACC', 'shortname': 'TWS', 'btn_type': 'ACC Skill Map',
+        'title': 'Saved regional title',
+    }]}))
+    manifest = discover_workflow_figures(tmp_path, write_manifest=True)
+    by_file = {fig['file']: fig for fig in manifest['figures']}
+    expected = [('Land · TWS', 'Global'), ('Land · TWS', 'North America'),
+                ('Atmosphere · PRECT', 'CONUS'), ('Ocean · SST', 'NH Extratropics')]
+    for name, (shortname, button) in zip(filenames, expected):
+        entry = by_file[name]
+        assert entry['group'] == 'REGIONAL_SKILL'
+        assert (entry['shortname'], entry['btn_type']) == (shortname, button)
+        assert entry['metric'].startswith('regional_acc')
+    assert by_file[filenames[0]]['title'] == 'Saved regional title'
+    # Each region must occupy a different quick-button slot, avoiding overwritten figures.
+    assert len({(f['shortname'], f['btn_type']) for f in manifest['figures']}) == 4
+    html = generate_diagnostics_webpage(tmp_path, make_web_readable=False).read_text()
+    assert '"REGIONAL_SKILL": "Regional ACC / nRMSE"' in html
+    assert 'if (fig.group === "REGIONAL_SKILL") return "SKILL";' in html
+    assert '"LEAD_RMSE", "REGIONAL_SKILL", "SST_INDEX"' in html
+    assert all(name in html for name in filenames)

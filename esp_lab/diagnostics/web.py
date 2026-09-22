@@ -31,6 +31,7 @@ def _humanize_figure_name(filename: str) -> str:
     replacements = {
         "1a": "1a",
         "1b": "1b",
+        "1c": "1c",
         "2a": "2a",
         "2b": "2b",
         "3a": "3a",
@@ -91,6 +92,8 @@ def _infer_metric(filename: str) -> str:
     """Infer a compact metric key for a figure without manifest metadata."""
     stem = Path(filename).stem.lower()
     candidates = (
+        "regional_acc_nrmse_skill",
+        "regional_acc_nrmse",
         "leadtime_drift",
         "global_teleconnection_patterns",
         "correlation_reference_comparison",
@@ -216,8 +219,11 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
         }
     ):
         return "MOV"
+    if "regional_acc" in stem or metric_lower.startswith("regional_acc"):
+        return "REGIONAL_SKILL"
     if (
-        stem.startswith(("fig_atm_acc_", "fig_lnd_acc_", "fig_lead_acc_", "fig_1a_", "fig_1b_"))
+        stem.startswith(("fig_atm_acc_", "fig_ocn_acc_", "fig_lnd_acc_", "fig_lead_acc_", "fig_1a_"))
+        or (stem.startswith("fig_1b_") and "acc" in stem)
         or "leadtime_acc" in stem
         or metric_lower.startswith("leadtime_acc")
     ):
@@ -225,13 +231,19 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
     if metric_lower.startswith("leadtime_drift") or "_drift" in stem:
         return "LEAD_DRIFT"
     if (
-        stem.startswith(("fig_atm_rmse_", "fig_rmse_compare_", "fig_lead_rmse_", "fig_2a_", "fig_2b_"))
+        stem.startswith(("fig_atm_rmse_", "fig_ocn_rmse_", "fig_lnd_rmse_", "fig_rmse_compare_", "fig_lead_rmse_", "fig_1b_", "fig_1c_", "fig_2a_", "fig_2b_"))
         or metric_lower.startswith("leadtime_rmse")
         or metric_lower.startswith("rmse_compare")
         or "_rmse" in stem
+        or "nrmse" in stem
     ):
         return "LEAD_RMSE"
-    return "SST_INDEX"
+    if stem.startswith("fig_3a_") or "sst_index" in stem or mode.upper() in {
+        "SST", "ENSO", "NMME", "ONI", "RONI", "ATLMDR", "ATLNINO",
+        "PACWARMPOOL", "TNA", "TSA", "TNI", "IOD",
+    }:
+        return "SST_INDEX"
+    return "OTHER"
 
 
 
@@ -246,7 +258,21 @@ def _infer_shortname_and_type(
     shortname = mode or "General"
     btn_type = "Diagnostic"
 
-    if group == "LEAD_ACC":
+    if group == "REGIONAL_SKILL":
+        match = re.search(r"regional_acc_(?:nrmse_)?(atm|land|lnd|ocn)_([^_]+)_(.+)$", stem_lower)
+        if match:
+            realm, field, region = match.groups()
+            realm_label = {"atm": "Atmosphere", "land": "Land", "lnd": "Land", "ocn": "Ocean"}[realm]
+            shortname = f"{realm_label} · {field.upper()}"
+            btn_type = {
+                "global": "Global", "land": "Land", "ocean": "Ocean",
+                "tropics": "Tropics", "nhex": "NH Extratropics", "shex": "SH Extratropics",
+                "conus": "CONUS", "na_box": "North America", "eurasia_box": "Eurasia",
+            }.get(region, region.replace("_", " ").title())
+        else:
+            btn_type = "Regional ACC / nRMSE"
+
+    elif group == "LEAD_ACC":
         for v in ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"]:
             if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
@@ -507,7 +533,11 @@ def discover_workflow_figures(
         for path in sorted(diag_dir.glob(pattern))
         if path.is_file() and path.suffix.lower() in FIGURE_EXTENSIONS
     )
-    # 2. Subdirectories
+    # 2. Subdirectories. Each subdirectory can carry its own figures.json,
+    # written directly by mov.save_figure at save time; that local manifest
+    # is the authoritative source for a nested figure's real title/metric/
+    # caption, since the root manifest only mirrors it on a later refresh.
+    subdir_metadata_by_file = {}
     if include_subdirs:
         for sub in sorted(diag_dir.iterdir()):
             if sub.is_dir() and not sub.name.startswith((".", "_")):
@@ -517,11 +547,29 @@ def discover_workflow_figures(
                         if not any(part.startswith((".", "_")) for part in rel.parts):
                             if path not in figure_paths:
                                 figure_paths.append(path)
+                for local_manifest_path in sorted(sub.glob("**/figures.json")):
+                    local_dir = local_manifest_path.parent
+                    try:
+                        with open(local_manifest_path, "r", encoding="utf-8") as fh:
+                            local_manifest = json.load(fh)
+                    except Exception:
+                        continue
+                    for entry in local_manifest.get("figures", []):
+                        fname = entry.get("file")
+                        if not fname:
+                            continue
+                        try:
+                            rel_key = (local_dir / fname).relative_to(diag_dir).as_posix()
+                        except ValueError:
+                            continue
+                        subdir_metadata_by_file[rel_key] = entry
 
     figures = []
     for path in figure_paths:
         rel_file = path.relative_to(diag_dir).as_posix()
-        entry = dict(metadata_by_file.get(rel_file, metadata_by_file.get(path.name, {})))
+        local_entry = subdir_metadata_by_file.get(rel_file)
+        root_entry = metadata_by_file.get(rel_file, metadata_by_file.get(path.name, {}))
+        entry = dict(local_entry) if local_entry else dict(root_entry)
         entry.update({"file": rel_file})
         entry.setdefault("mode", _infer_mode(path.name))
         entry.setdefault("metric", _infer_metric(path.name))
@@ -553,6 +601,19 @@ def discover_workflow_figures(
     return manifest
 
 
+def _ensure_permission_bits(path: Path, desired_bits: int) -> None:
+    """Chmod ``path`` only when its current bits don't already cover ``desired_bits``.
+
+    Re-running the gallery refresh issues a stat+chmod pair per cataloged file
+    by default; skipping the chmod write once permissions are already correct
+    avoids repeating that write syscall on every refresh of a networked
+    filesystem, when in practice only newly added files need it.
+    """
+    current_mode = path.stat().st_mode
+    if current_mode & desired_bits != desired_bits:
+        path.chmod(current_mode | desired_bits)
+
+
 def _make_gallery_web_readable(diag_dir: Path, manifest: dict) -> None:
     """Ensure the portal can traverse the gallery and read its files."""
     directory_bits = (
@@ -564,25 +625,29 @@ def _make_gallery_web_readable(diag_dir: Path, manifest: dict) -> None:
         | stat.S_IROTH
         | stat.S_IXOTH
     )
-    diag_dir.chmod(diag_dir.stat().st_mode | directory_bits)
+    _ensure_permission_bits(diag_dir, directory_bits)
 
     readable_bits = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+    checked_dirs = set()
 
     for entry in manifest.get("figures", []):
         filename = entry.get("file")
         if not filename:
             continue
         figure_path = diag_dir / filename
-        if figure_path.is_file():
-            parent_dir = figure_path.parent
-            if parent_dir != diag_dir and parent_dir.is_dir():
-                parent_dir.chmod(parent_dir.stat().st_mode | directory_bits)
-            figure_path.chmod(figure_path.stat().st_mode | readable_bits)
+        if not figure_path.is_file():
+            continue
+        parent_dir = figure_path.parent
+        if parent_dir != diag_dir and parent_dir not in checked_dirs:
+            if parent_dir.is_dir():
+                _ensure_permission_bits(parent_dir, directory_bits)
+            checked_dirs.add(parent_dir)
+        _ensure_permission_bits(figure_path, readable_bits)
 
     for filename in ("figures.json", "index.html"):
         path = diag_dir / filename
         if path.is_file():
-            path.chmod(path.stat().st_mode | readable_bits)
+            _ensure_permission_bits(path, readable_bits)
 
 
 def generate_diagnostics_webpage(
@@ -2362,6 +2427,7 @@ def _build_html_template(manifest: dict) -> str:
             "ALL": "All Figures",
             "LEAD_ACC": "Lead-time ACC",
             "LEAD_RMSE": "Lead-time RMSE",
+            "REGIONAL_SKILL": "Regional ACC / nRMSE",
             "SST_INDEX": "SST Indices",
             "MOV": "Modes of Variability",
             "ELI": "ELI Diagnostics",
@@ -2374,6 +2440,7 @@ def _build_html_template(manifest: dict) -> str:
 
         const GROUP_DESCRIPTIONS = {
             "ALL": "All workflow-generated diagnostic figures across active analysis notebooks.",
+            "REGIONAL_SKILL": "Global and regional ACC and normalized RMSE curves versus lead time, with seasonal and monthly comparisons.",
             "LEAD_ACC": "Precipitation, pressure, temperature, and land hydrology ACC skill maps and comparisons vs lead month.",
             "LEAD_RMSE": "Root Mean Square Error (RMSE) skill maps, CONUS/Global regional summaries, and model comparisons.",
             "SST_INDEX": "Skill curves and ensemble-mean historical time series for tropical Pacific, Atlantic, and Indian ocean climate indices.",
@@ -2434,6 +2501,8 @@ def _build_html_template(manifest: dict) -> str:
 
         // Parse group names from filenames or properties
         function parseGroup(fig) {
+            if ((fig.file || "").toLowerCase().includes("regional_acc") ||
+                (fig.metric || "").toLowerCase().startsWith("regional_acc")) return "REGIONAL_SKILL";
             if (fig.group && fig.group.trim() !== "") {
                 return fig.group.trim().toUpperCase();
             }
@@ -2476,6 +2545,7 @@ def _build_html_template(manifest: dict) -> str:
             const metric = (fig.metric || "").toLowerCase();
             const file = (fig.file || "").toLowerCase();
 
+            if (fig.group === "REGIONAL_SKILL") return "SKILL";
             if (fig.group === "LEAD_ACC") {
                 if (metric.includes("compare")) return "MODEL_COMPARISON";
                 if (metric.includes("diff")) return "DIFFERENCE";
@@ -2542,7 +2612,19 @@ def _build_html_template(manifest: dict) -> str:
             let shortname = fig.mode || "General";
             let btnType = "Diagnostic";
 
-            if (group === "LEAD_ACC") {
+            if (group === "REGIONAL_SKILL") {
+                const match = stemLower.match(/regional_acc_(?:nrmse_)?(atm|land|lnd|ocn)_([^_]+)_(.+)$/);
+                btnType = "Regional ACC / nRMSE";
+                if (match) {
+                    const realms = {atm: "Atmosphere", land: "Land", lnd: "Land", ocn: "Ocean"};
+                    const regions = {global: "Global", land: "Land", ocean: "Ocean", tropics: "Tropics",
+                        nhex: "NH Extratropics", shex: "SH Extratropics", conus: "CONUS",
+                        na_box: "North America", eurasia_box: "Eurasia"};
+                    shortname = `${realms[match[1]]} · ${match[2].toUpperCase()}`;
+                    btnType = regions[match[3]] || match[3].split("_").map(
+                        word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+                }
+            } else if (group === "LEAD_ACC") {
                 const vars = ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"];
                 for (const v of vars) {
                     if (stemLower.includes(v.toLowerCase())) { shortname = v; break; }
@@ -2763,7 +2845,7 @@ def _build_html_template(manifest: dict) -> str:
             });
 
             const workflowOrder = [
-                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "TC", "OTHER"
+                "LEAD_ACC", "LEAD_RMSE", "REGIONAL_SKILL", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "TC", "OTHER"
             ];
             const groups = Object.keys(counts)
                 .filter(g => g !== "ALL")
@@ -2923,7 +3005,7 @@ def _build_html_template(manifest: dict) -> str:
             }
 
             const workflowOrder = [
-                "LEAD_ACC", "LEAD_RMSE", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "TC", "OTHER"
+                "LEAD_ACC", "LEAD_RMSE", "REGIONAL_SKILL", "SST_INDEX", "MOV", "ELI", "INITIAL_SHOCK", "TELECONNECTIONS", "TC", "OTHER"
             ];
             const byGroup = {};
             list.forEach(fig => {
