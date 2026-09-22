@@ -42,13 +42,21 @@ This fork extends ESP-Lab to fully support analysis and verification of **E3SM (
 ## Analysis & Diagnostic Suite (`jupyter/`)
 The primary evaluation workflows are organized sequentially under the [`jupyter/`](jupyter/) directory:
 
+The refactored `1a_*`, `1b_*`, and `1c_*` families separate ACC, anomaly-based RMSE maps, and direct raw-value RMSE comparisons, respectively, with `atm`, `lnd`, and `ocn` variants. Atmosphere and ocean workflows can compare against CESM-SMYLE; land workflows compare E3SM cases against a configured land reference. Land `1b` reuses or computes the same normalized-RMSE skill caches as land `1a`. Land `1c` requires an absolute-value reference: the default C3S TWSA anomaly product is suitable for `1a`/`1b`, but cannot be compared directly with raw model storage.
+
 | Notebook | Focus Area | Description |
 |---|---|---|
 | [`0_run_cesm_smyle_benchmark.ipynb`](jupyter/0_run_cesm_smyle_benchmark.ipynb) | Benchmark Data | Dask-distributed preprocessing of CESM-SMYLE hindcasts |
 | [`1a_atm_leadtime_acc_skill_map.ipynb`](jupyter/1a_atm_leadtime_acc_skill_map.ipynb) | Atmospheric Skill | Lead-time anomaly correlation coefficient (ACC) maps |
-| [`1b_lnd_leadtime_acc_skill_map.ipynb`](jupyter/1b_lnd_leadtime_acc_skill_map.ipynb) | Land Skill | Land surface lead-time ACC maps (soil moisture, runoff, etc.) |
-| [`2a_leadtime_rmse_skill_map.ipynb`](jupyter/2a_leadtime_rmse_skill_map.ipynb) | Error Maps | Spatial root mean square error (RMSE) skill maps |
-| [`2b_leadtime_rmse_compare.ipynb`](jupyter/2b_leadtime_rmse_compare.ipynb) | Model Comparison | Multi-model RMSE comparison and model difference metrics |
+| [`1a_lnd_leadtime_acc_skill_map.ipynb`](jupyter/1a_lnd_leadtime_acc_skill_map.ipynb) | Land Skill | Land surface lead-time ACC maps (soil moisture, runoff, etc.) |
+| [`1a_ocn_leadtime_acc_skill_map.ipynb`](jupyter/1a_ocn_leadtime_acc_skill_map.ipynb) | Ocean Skill | Ocean-realm lead-time ACC maps (starting with SST) |
+| [`1b_atm_leadtime_rmse_skill_map.ipynb`](jupyter/1b_atm_leadtime_rmse_skill_map.ipynb) | Error Maps | Spatial root mean square error (RMSE) skill maps (atmosphere) |
+| [`1b_ocn_leadtime_rmse_skill_map.ipynb`](jupyter/1b_ocn_leadtime_rmse_skill_map.ipynb) | Error Maps | Spatial RMSE skill maps (ocean, starting with SST) |
+| [`1b_lnd_leadtime_rmse_skill_map.ipynb`](jupyter/1b_lnd_leadtime_rmse_skill_map.ipynb) | Error Maps | Spatial RMSE skill maps (land: H2OSNO, H2OSOI, TWS) |
+| [`1c_atm_leadtime_rmse_compare.ipynb`](jupyter/1c_atm_leadtime_rmse_compare.ipynb) | Model Comparison | Multi-model RMSE comparison and model difference metrics (atmosphere) |
+| [`1c_ocn_leadtime_rmse_compare.ipynb`](jupyter/1c_ocn_leadtime_rmse_compare.ipynb) | Model Comparison | Multi-model RMSE comparison and model difference metrics (ocean, starting with SST) |
+| [`1c_lnd_leadtime_rmse_compare.ipynb`](jupyter/1c_lnd_leadtime_rmse_compare.ipynb) | Model Comparison | Direct-RMSE comparison between E3SM land cases (absolute-value reference required; no CESM-SMYLE land benchmark) |
+| [`2a_regional_acc_skill_ts.ipynb`](jupyter/2a_regional_acc_skill_ts.ipynb) | Regional Skill | Cache-first global and regional ACC-versus-lead summaries from 1a ACC products |
 | [`3a_sst_skill_ts.ipynb`](jupyter/3a_sst_skill_ts.ipynb) | Ocean Skill | SST index skill time series (E3SM, CESM-SMYLE, NMME) |
 | [`3b_sst_telecon.ipynb`](jupyter/3b_sst_telecon.ipynb) | Teleconnections | Sea surface temperature teleconnection diagnostics |
 | [`4a_mov_analysis.ipynb`](jupyter/4a_mov_analysis.ipynb) | Modes of Variability | EOF projection and index calculation (PDO, AMO, NAO) |
@@ -95,7 +103,7 @@ Within each experiment or multi-model directory, subdirectories partition datase
 | Diagnostic Area | Directory Path | File Naming Pattern & Example |
 |:---|:---|:---|
 | **Lead-Time ACC** | `<source>/leadtime_acc/skill/{realm}/{field}/` | `{source}_{field}_{realm}_init{month:02d}_{start}_{end}.nc`<br>*(e.g., `4DEnVarOcn_PRECT_atm_init05_1980_2011.nc`)* |
-| **Lead-Time RMSE** | `<source>/leadtime_rmse/inputs/atm/{field}/`<br>`<source>/leadtime_acc/comparison/atm/direct_rmse/{field}/` | Inputs: `{source}_{field}_init{month:02d}_years_{start}-{end}_ny{N}.nc`<br>Skill: `{source}_{field}_direct_rmse_init{month:02d}_years_{start}-{end}.nc` |
+| **Lead-Time RMSE** | `<source>/leadtime_rmse/inputs/{atm,ocn}/{field}/`<br>`<source>/leadtime_acc/comparison/{realm}/direct_rmse/{field}/` | Inputs: `{source}_{field}_init{month:02d}_years_{start}-{end}_ny{N}.nc`<br>Skill: `{source}_{field}_direct_rmse_init{month:02d}_years_{start}-{end}_ny{N}.nc` |
 | **Teleconnections** | `multimodel/leadtime_telec/`<br>`<source>/leadtime_telec/`<br>`observations/leadtime_telec/` | `teleconnection_{index}_{variable}_verify{start}_{end}.nc`<br>*(e.g., `teleconnection_Nino34_TREFHT_verify1981_2011.nc`, `teleconnection_AMO_PSL_verify1981_2011.nc`)* |
 | **Modes of Var** | `<source>/modes_variability/` | EOF: `{source}_{mode}_eof_pattern.nc`<br>PC Time Series: `{source}_{mode}_pc_index.nc` |
 | **SST & ELI** | `<source>/sst_index/`<br>`<source>/eli/` | Time Series: `{source}_{index}_monthly_ts.nc`<br>Skill: `{source}_{index}_seasonal_acc_rmse.nc` |
@@ -106,10 +114,14 @@ All diagnostic plots are published into a unified web-accessible root (e.g., `/g
 
 | Diagnostic Group | Notebook | Figure Filename Pattern | Example Figures |
 |:---|:---:|:---|:---|
-| **Atmospheric ACC** | `1a` | `fig_atm_acc_{field}_{metric}.png` | `fig_atm_acc_prect_acc_compare.png`, `fig_atm_acc_prect_acc_difference.png` |
-| **Land ACC** | `1b` | `fig_lnd_acc_{field}_{metric}.png` | `fig_lnd_acc_tws_acc.png`, `fig_lnd_acc_h2osoi_acc_difference.png` |
-| **Spatial RMSE** | `2a` | `fig_atm_rmse_{field}_rmse_{region}.png` | `fig_atm_rmse_prect_rmse_global.png`, `fig_atm_rmse_prect_rmse_conus.png` |
-| **Multi-Model RMSE** | `2b` | `fig_rmse_compare_{field}_rmse_{type}_{init}.png` | `fig_rmse_compare_prect_rmse_compare_global.png`, `fig_rmse_compare_prect_rmse_difference_compare_init05.png` |
+| **Atmospheric ACC** | `1a_atm` | `fig_atm_acc_{field}_{metric}.png` | `fig_atm_acc_prect_acc_compare.png`, `fig_atm_acc_prect_acc_difference.png` |
+| **Land ACC** | `1a_lnd` | `fig_lnd_acc_{field}_{metric}.png` | `fig_lnd_acc_tws_acc.png`, `fig_lnd_acc_h2osoi_acc_difference.png` |
+| **Spatial RMSE** | `1b_atm` | `fig_atm_rmse_{field}_rmse_{region}.png` | `fig_atm_rmse_prect_rmse_global.png`, `fig_atm_rmse_prect_rmse_conus.png` |
+| **Multi-Model RMSE** | `1c_*` | `fig_rmse_compare_{field}_rmse_{type}_{init}.png` | `fig_rmse_compare_prect_rmse_compare_global.png`, `fig_rmse_compare_prect_rmse_difference_compare_init05.png` |
+| **Ocean ACC** | `1a_ocn` | `fig_ocn_acc_{field}_{metric}.png` | `fig_ocn_acc_sst_acc_compare.png` |
+| **Ocean RMSE** | `1b_ocn` | `fig_ocn_rmse_{field}_rmse_{region}.png` | `fig_ocn_rmse_sst_rmse_global.png` |
+| **Land normalized RMSE** | `1b_lnd` | `fig_lnd_rmse_{field}_{metric}.png` | `fig_lnd_rmse_h2osoi_rmse.png` |
+| **Regional ACC / nRMSE** | `2a` | `fig_regional_acc_nrmse_{realm}_{field}_{region}.png` | `fig_regional_acc_nrmse_land_tws_global.png` |
 | **SST Indices** | `3a` | `fig_sst_index_{index}_{metric}.png` | `fig_sst_index_nino34_acc_skill.png`, `fig_sst_index_nino34_time_series.png` |
 | **SST Teleconnections** | `3b` | `fig_teleconnection_{index}_{var}_{metric}.png` | `fig_teleconnection_NINO34_TREFHT_summary.png`, `fig_teleconnection_AMO_H2OSNO_summary.png` |
 | **Modes of Var** | `4a` | `fig_mov_{mode}_{metric}.png` | `fig_mov_nam_skill.png`, `fig_mov_pdo_pc_time_series.png` |
