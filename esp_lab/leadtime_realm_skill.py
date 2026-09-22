@@ -39,15 +39,60 @@ This module intentionally does **not** yet cover the rest of the 1a
 notebooks (raw E3SM/CESM-SMYLE loading and regridding, observation
 preparation, prepared-input source-identity/cache-spec planning, the finite-
 ensemble CESM-SMYLE-vs-E3SM significance comparison, or any of the
-multi-panel plotting cells), nor the 1b (RMSE skill map) or 1c (RMSE
-compare) notebooks or their ocean counterparts. Those remain inline and
-duplicated between the atm and ocn notebooks. See the migration notes in
-this repository's refactor history for why: the remaining cells are each
-tens of thousands of characters of bespoke multi-panel plotting layout or
-large, mostly self-contained statistical-resampling blocks, and porting them
-faithfully needs the same careful, dedicated attention given here to the
+multi-panel plotting cells). Those remain inline and duplicated between the
+atm and ocn notebooks. See the migration notes in this repository's refactor
+history for why: the remaining cells are each tens of thousands of
+characters of bespoke multi-panel plotting layout or large, mostly
+self-contained statistical-resampling blocks, and porting them faithfully
+needs the same careful, dedicated attention given here to the
 drift-removal and skill-computation steps, which is why they were left for a
 follow-up pass instead of being rushed.
+
+A follow-up pass extended the module to also cover the 1b (RMSE skill map)
+atm/ocn notebooks' drift-removal step (:func:`prepare_drift_removed_anomaly`
+is directly reusable there -- verified line-by-line against both notebooks'
+``prepared_cache_spec``/``e3sm_seasonal_cache_spec`` helpers, which build
+``expected_attrs`` dicts with the exact same
+``ensemble_member_count``/``lead_count``/``unit_conversion_version`` shape
+1a uses) and skill-computation step via the new
+:func:`compute_and_cache_rmse_skill`. That new function is deliberately
+**not** a thin wrapper around :func:`compute_and_cache_skill`: 1b calls
+``stats.compute_skill_seasonal`` directly with ``lead_start``/``lead_end``
+passed straight through as its ``nleadavg``/``nleads`` positional
+parameters (no prior :func:`esp_lab.leadtime_workflow.select_lead_range`
+slicing step), which is a different calling convention than 1a's
+:func:`esp_lab.leadtime_workflow.compute_skill_lead_range` wrapper (which
+slices to the lead range first, then always passes ``nleadavg=1`` and
+``nleads=<post-slice lead count>``). In the notebooks' current
+configuration (``lead_start=1``, ``lead_end=case_nlead // 3``) these two
+calling conventions happen to produce the same result, but they are not
+equivalent in general, so :func:`compute_and_cache_rmse_skill` preserves
+1b's exact original call shape verbatim rather than reusing
+:func:`compute_and_cache_skill`. It also preserves 1b's narrower
+``required_variables=('rmse', 'sig_obs')`` cache-compatibility check (1a's
+:func:`compute_and_cache_skill` defaults to requiring all
+:data:`ACC_SKILL_REQUIRED_VARIABLES`) and its explicit
+``xr.Dataset({...})`` reconstruction from the named ``skill.<var>`` fields
+returned by ``compute_skill_seasonal`` (rather than 1a's
+``skill.assign_attrs(...)`` on the whole returned Dataset), since
+``compute_skill_seasonal`` returns extra fields (e.g. sample-count/target-
+year bookkeeping) that 1b's cache files have never included.
+
+The 1c (RMSE compare) atm/ocn notebooks were read in full, cell by cell, and
+found to need no equivalent extraction: they compute a fundamentally
+different metric (direct, non-anomaly RMSE against raw values, explicitly
+*not* the drift-removed/``compute_skill_seasonal`` skill pipeline -- see
+1c's own "The original full skill-metric calculation is intentionally
+skipped in this direct-RMSE notebook" comment) and that computation already
+lives entirely in the shared ``workflows.leadtime_skill.rmse_comparison``
+helper module (imported as ``rmse_compare_helper``), not duplicated inline.
+Diffing 1c's atm and ocn notebooks cell-by-cell confirms this: every code
+cell touching drift/RMSE computation, caching, or helper wiring (e.g. the
+"Compute and save direct RMSE" and "Helper functions for direct RMSE"
+cells) is byte-identical between the two notebooks already; only the title
+cell, one heading's field-list text, and the ``VAR_CONFIG``/period-setup
+cell (genuinely realm-specific field metadata) differ. There is no
+atm/ocn-duplicated formula left in 1c for this module to absorb.
 """
 
 from __future__ import annotations
@@ -201,6 +246,82 @@ def compute_and_cache_skill(
     return skill_ds
 
 
+def compute_and_cache_rmse_skill(
+    model_anom: xr.DataArray,
+    model_time: xr.DataArray,
+    observations: xr.DataArray,
+    clim_start,
+    clim_end,
+    lead_start: int,
+    lead_end: int,
+    *,
+    outfile: str | Path,
+    expected_attrs: Mapping,
+    netcdf_write_options: Mapping,
+    detrend: bool,
+    force_compute: bool = False,
+    required_variables: Sequence[str] = ("rmse", "sig_obs"),
+) -> xr.Dataset:
+    """Load a compatible cached RMSE skill Dataset, or compute and cache one.
+
+    This is the 1b (RMSE skill map) atm/ocn notebooks' "check compatibility,
+    reuse or recompute, write atomically" step for the E3SM per-case/month
+    skill, the CESM-SMYLE full-record skill, and the CESM-SMYLE overlap
+    skill. Unlike :func:`compute_and_cache_skill` (1a's ACC equivalent),
+    this calls ``stats.compute_skill_seasonal`` directly with ``lead_start``
+    and ``lead_end`` passed straight through as its ``nleadavg``/``nleads``
+    positional parameters -- exactly matching 1b's original inline call --
+    rather than routing through
+    :func:`esp_lab.leadtime_workflow.compute_skill_lead_range`'s
+    slice-then-``nleadavg=1`` convention. See the module docstring's "Scope
+    note" for why these two calling conventions are not interchangeable in
+    general even though they agree for 1b's current configuration.
+
+    It also matches 1b's narrower default ``required_variables`` cache
+    check and its explicit reconstruction of the cached Dataset from only
+    the named ``corr``/``pval``/``rmse``/``msss``/``rpc``/``sig_obs``/
+    ``sig_sig``/``sig_tot``/``s2t`` fields (dropping any other fields
+    ``compute_skill_seasonal`` returns), and 1b's unconditional "Recomputing
+    ..." print message on a cache miss (1a only prints when the stale file
+    already exists and a recompute was not explicitly forced).
+    """
+    outfile = Path(outfile)
+    compatible, reason = cache_status(
+        outfile, expected_attrs=expected_attrs, required_variables=required_variables
+    )
+    if compatible and not force_compute:
+        return load_netcdf(outfile)
+
+    print(f"Recomputing {outfile}: {reason}")
+    skill = stats.compute_skill_seasonal(
+        model_anom,
+        model_time,
+        observations,
+        clim_start,
+        clim_end,
+        lead_start,
+        lead_end,
+        resamp=0,
+        detrend=detrend,
+    )
+    skill_ds = xr.Dataset(
+        {
+            "corr": skill.corr,
+            "pval": skill.pval,
+            "rmse": skill.rmse,
+            "msss": skill.msss,
+            "rpc": skill.rpc,
+            "sig_obs": skill.sig_obs,
+            "sig_sig": skill.sig_sig,
+            "sig_tot": skill.sig_tot,
+            "s2t": skill.s2t,
+        }
+    ).compute()
+    skill_ds.attrs.update(expected_attrs)
+    atomic_to_netcdf(skill_ds, outfile, **dict(netcdf_write_options))
+    return skill_ds
+
+
 def common_finite_ocean_mask(samples: Sequence[xr.DataArray]) -> xr.DataArray:
     """Return the common all-finite domain across several unmasked samples.
 
@@ -221,6 +342,7 @@ def common_finite_ocean_mask(samples: Sequence[xr.DataArray]) -> xr.DataArray:
 __all__ = [
     "ACC_SKILL_REQUIRED_VARIABLES",
     "common_finite_ocean_mask",
+    "compute_and_cache_rmse_skill",
     "compute_and_cache_skill",
     "prepare_drift_removed_anomaly",
 ]
