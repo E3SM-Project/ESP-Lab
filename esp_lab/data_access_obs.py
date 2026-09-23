@@ -1,3 +1,4 @@
+import glob
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 import warnings
@@ -845,6 +846,92 @@ def get_monthly_data(
             base_year=base_year,
         )
         return _rename_field_if_needed(out, preproc_field, field_resolved)
+
+    raise TypeError(
+        "preproc must be 'default' or a callable with signature "
+        "preproc(ds, field=None, start_year=None, end_year=None, **kwargs)"
+    )
+
+
+def resolve_glob_files(path_pattern: str) -> List[Path]:
+    """Resolve an explicit path or glob into a sorted, non-empty file list."""
+    text = str(Path(path_pattern).expanduser())
+    if any(char in text for char in "*?["):
+        paths = sorted(Path(p) for p in glob.glob(text))
+    else:
+        candidate = Path(text)
+        paths = [candidate] if candidate.is_file() else []
+    if not paths:
+        raise FileNotFoundError(f"No observational files match {path_pattern!r}")
+    return paths
+
+
+def get_monthly_data_from_pattern(
+    path_pattern: str,
+    field: str,
+    chunks: Optional[Dict[str, int]] = None,
+    preproc: Union[str, Callable] = "default",
+    start_year: Optional[str] = None,
+    end_year: Optional[str] = None,
+    harmonize_time: bool = True,
+    calendar: str = "noleap",
+    decode_times: bool = True,
+    base_year: Optional[int] = None,
+    verbose: bool = False,
+) -> xr.Dataset:
+    """
+    Load a preprocessed observational monthly time-series dataset from a set
+    of files matched by an explicit path or glob pattern.
+
+    Use this instead of :func:`get_monthly_data` for archives split across
+    multiple files (e.g. one file per year) that do not follow the
+    ``{field}_{start_yyyymm}_{end_yyyymm}.nc`` single-file-per-product
+    convention that :func:`find_obs_file` expects. Parameters mirror
+    :func:`get_monthly_data`, except ``path_pattern`` replaces
+    ``obs_dir``/``product``/``filename``, and ``field`` is the variable name
+    to select directly from the source files (no CMOR name resolution).
+    """
+    paths = resolve_glob_files(path_pattern)
+
+    if chunks is None:
+        chunks = {}
+
+    if verbose:
+        print(f"[OBS] Loading {len(paths)} file(s) matching: {path_pattern}")
+
+    if len(paths) == 1:
+        ds = xr.open_dataset(paths[0], chunks=chunks, decode_times=decode_times)
+    else:
+        ds = xr.open_mfdataset(
+            [str(p) for p in paths],
+            chunks=chunks,
+            decode_times=decode_times,
+            combine="by_coords",
+        )
+
+    if preproc == "default":
+        return preprocessor_monthly(
+            ds,
+            field=field,
+            start_year=start_year,
+            end_year=end_year,
+            harmonize_time=harmonize_time,
+            calendar=calendar,
+            decode_times=decode_times,
+            base_year=base_year,
+        )
+
+    if callable(preproc):
+        return preproc(
+            ds,
+            field=field,
+            start_year=start_year,
+            end_year=end_year,
+            harmonize_time=harmonize_time,
+            calendar=calendar,
+            decode_times=decode_times,
+            base_year=base_year,
+        )
 
     raise TypeError(
         "preproc must be 'default' or a callable with signature "
