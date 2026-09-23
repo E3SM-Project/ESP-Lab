@@ -128,8 +128,8 @@ ACC_SKILL_REQUIRED_VARIABLES = (
 
 
 def prepare_drift_removed_anomaly(
-    da: xr.DataArray,
-    valid_time: xr.DataArray,
+    da_fn,
+    valid_time_fn,
     *,
     prepared_path: str | Path,
     expected_attrs: Mapping,
@@ -145,9 +145,24 @@ def prepare_drift_removed_anomaly(
 ) -> xr.Dataset:
     """Load or build one provenance-tracked, drift-removed anomaly bundle.
 
-    On a compatible cache hit (``reuse`` and not ``force_recompute``), the
-    prepared bundle is opened and validated against ``expected_attrs``. On a
-    miss, :func:`esp_lab.stats.remove_drift` is applied over
+    ``da_fn`` and ``valid_time_fn`` are zero-argument callables (typically a
+    ``lambda`` closing over a case/month dict lookup) rather than plain
+    values. This matters: on a compatible cache hit (``reuse`` and not
+    ``force_recompute``), the prepared bundle is opened directly and neither
+    callable is ever invoked. The pre-refactor inline code relied on exactly
+    this laziness -- the raw regridded input for a case/month is only loaded
+    upstream when that case/month's prepared-skill cache is stale (see each
+    notebook's ``e3sm_months_to_prepare``/``smyle_months_to_prepare``
+    filtering), so a case/month with a valid cache is never present in
+    ``e3sm_da_by_case_month``/``smyle_da_by_month`` at all. Passing
+    ``e3sm_da_by_case_month[case_key][init_month]`` as a plain positional
+    argument (as an earlier version of this function did) evaluates that
+    dict lookup eagerly at the call site, before this function's cache check
+    runs, raising a ``KeyError`` on every fully-cached case/month -- even
+    though the value would never have been used. Callables restore the
+    original lazy evaluation.
+
+    On a miss, :func:`esp_lab.stats.remove_drift` is applied over
     ``climatology_years`` and the result is atomically written then reopened
     from disk, so downstream cells operate on a small graph instead of the
     full upstream lazy-processing chain.
@@ -170,6 +185,8 @@ def prepare_drift_removed_anomaly(
         )
 
     print(f"Creating prepared input: {prepared_path}")
+    da = da_fn()
+    valid_time = valid_time_fn()
     anomaly, climatology = stats.remove_drift(da, valid_time, climy0, climy1)
     prepared = build_prepared_skill_dataset(
         anomaly,
