@@ -748,7 +748,7 @@ def _build_html_template(manifest: dict) -> str:
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>ESP-Lab Diagnostic Viewer</title>
+    <title>E3SM-S2D Diagnostic Viewer</title>
     <!-- Modern font from Google Fonts. Standard system-ui fallback is included for offline use. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2213,7 +2213,7 @@ def _build_html_template(manifest: dict) -> str:
                 <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
             </svg>
         </button>
-        <span class="mobile-brand-title">ESP-Lab Diagnostics</span>
+        <span class="mobile-brand-title">E3SM-S2D Diagnostics</span>
     </div>
 
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -2221,7 +2221,7 @@ def _build_html_template(manifest: dict) -> str:
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
         <div class="sidebar-header">
-            <h1 class="brand-title">ESP-Lab</h1>
+            <h1 class="brand-title">E3SM-S2D</h1>
             <div class="brand-subtitle">Diagnostics Viewer</div>
         </div>
 
