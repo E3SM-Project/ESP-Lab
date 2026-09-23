@@ -64,7 +64,7 @@ ALL_VARIABLES = [
 
 DEFAULT_DIAG_ROOT = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag"
 DEFAULT_OUTPUT_DIR = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/multimodel/leadtime_telec"
-DEFAULT_FIGURE_DIR = "/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/teleconnections"
+DEFAULT_FIGURE_DIR = "/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag/teleconnections"
 
 
 def initialization_label(month: int) -> str:

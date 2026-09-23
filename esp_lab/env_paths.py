@@ -1,7 +1,7 @@
 """Environment-overridable defaults for machine-specific ESP-Lab roots.
 
 Notebooks previously hardcoded one person's NERSC paths (for example
-``/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag``) as literal defaults,
+``/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag``) as literal defaults,
 which meant no other user or account could run them without manual
 find-replace. These helpers keep the same defaults for the existing
 workflow but let any of them be overridden with an ``ESP_LAB_*``
@@ -17,7 +17,7 @@ from pathlib import Path
 _DEFAULTS = {
     "S2D_DIAG_ROOT": "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag",
     "RAW_MODEL_ROOT": "/global/cfs/cdirs/e3sm/S2S2D/post_process",
-    "FIGURE_ROOT": "/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag",
+    "FIGURE_ROOT": "/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag",
     "OBS_ROOT": "/global/cfs/cdirs/e3sm/e3sm_diags/obs_for_e3sm_diags/time-series",
     "DATA_ROOT": "/global/cfs/cdirs/e3sm/zhan391/data",
 }

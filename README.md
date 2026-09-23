@@ -73,7 +73,7 @@ The refactored `1a_*`, `1b_*`, and `1c_*` families separate ACC, anomaly-based R
 ## Interactive Web Viewer
 ESP-Lab includes a responsive HTML web generator (`esp_lab.diagnostics.web`) that compiles all evaluation figures into a standalone, browsable diagnostics gallery.
 
-- **Live Web Gallery**: [NERSC CFS ESP-Lab Diagnostics Portal](https://portal.nersc.gov/cfs/e3sm/zhan391/esp-lab_diag/index.html)
+- **Live Web Gallery**: [NERSC CFS E3SM-S2D Diagnostics Portal](https://portal.nersc.gov/cfs/e3sm/zhan391/e3sm-s2d_diag/index.html)
 - **Features**:
   - **Quick Buttons View**: One-page clickable matrix organized by diagnostic category and figure type.
   - **Driver Mode Filter**: Instant filtering by initialization mode (`init05`, `init11`, `all`, etc.).
@@ -112,7 +112,7 @@ Within each experiment or multi-model directory, subdirectories partition datase
 | **Initial Shock** | `<source>/initial_shock/` | Shock Metrics: `init{month:02d}_{start}_{end}.nc`<br>*(e.g., `init05_1980_2011.nc`, `init11_1980_2011.nc`)* |
 
 ### Figure Naming Conventions (`FIGURE_OUTDIR`)
-All diagnostic plots are published into a unified web-accessible root (e.g., `/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/`) with semantic, self-describing scientific naming:
+All diagnostic plots are published into a unified web-accessible root (e.g., `/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag/`) with semantic, self-describing scientific naming:
 
 | Diagnostic Group | Notebook | Figure Filename Pattern | Example Figures |
 |:---|:---:|:---|:---|

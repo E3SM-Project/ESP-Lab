@@ -15,7 +15,7 @@ from scipy import stats as scipy_stats
 
 DEFAULT_DIAG_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag")
 DEFAULT_OUTPUT_DIR = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/multimodel/leadtime_telec")
-DEFAULT_FIGURE_DIR = Path("/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/teleconnections")
+DEFAULT_FIGURE_DIR = Path("/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag/teleconnections")
 DEFAULT_DOWNSTREAM_TARGET_GRIDS = {
     "atmosphere": "latlon_1.0x1.0_periodic-True",
     "land": "1x1deg_cell_centered",
