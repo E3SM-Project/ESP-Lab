@@ -79,24 +79,6 @@ def resolve_obs_dir(obs_dir: Optional[str] = None) -> Path:
     return obs_path
 
 
-def list_products(obs_dir: Optional[str] = None) -> List[str]:
-    """
-    List available observational product subdirectories.
-
-    Parameters
-    ----------
-    obs_dir : str, optional
-        Base observation directory. If None, use DEFAULT_OBS_DIR.
-
-    Returns
-    -------
-    products : list of str
-        Sorted list of available product names.
-    """
-    obs_path = resolve_obs_dir(obs_dir)
-    return sorted([p.name for p in obs_path.iterdir() if p.is_dir()])
-
-
 def resolve_obs_field(
     field: Optional[str],
     use_cmor_map: bool = True,
@@ -939,25 +921,6 @@ def get_monthly_data_from_pattern(
     )
 
 
-def merge_obs(primary: xr.DataArray, secondary: xr.DataArray) -> xr.DataArray:
-    """
-    Fill missing values in the primary observational field using values
-    from the secondary field.
-    """
-    if not isinstance(primary, xr.DataArray) or not isinstance(secondary, xr.DataArray):
-        raise TypeError("Inputs to merge_obs must be xarray.DataArray instances")
-
-    if "time" in primary.dims and "time" in secondary.dims:
-        if primary.sizes.get("time") != secondary.sizes.get("time"):
-            raise ValueError(
-                f"Cannot merge! Time sizes do not match. "
-                f"primary ({primary.name}) time length: {primary.sizes.get('time')}, "
-                f"secondary ({secondary.name}) time length: {secondary.sizes.get('time')}"
-            )
-
-    return primary.fillna(secondary)
-
-
 def mon_to_seas_obs(
     ds: xr.Dataset,
     var: str,
@@ -1143,55 +1106,3 @@ def obs_regional_weights(
     return weights.where(region, 0).fillna(0)
 
 
-def obs_regional_mean(
-    da: xr.DataArray,
-    lonlat,
-    lat_name: str = "lat",
-    lon_name: str = "lon",
-    area: xr.DataArray = None,
-    mask: xr.DataArray = None,
-) -> xr.DataArray:
-    """
-    Area-weighted regional mean for observational lat/lon data.
-
-    Parameters
-    ----------
-    da : xr.DataArray
-        Input DataArray on a rectilinear lat/lon grid.
-    lonlat : sequence of length 4
-        [lon_w, lon_e, lat_s, lat_n].
-    lat_name : str, optional
-        Latitude coordinate name, default 'lat'.
-    lon_name : str, optional
-        Longitude coordinate name, default 'lon'.
-    area : xr.DataArray, optional
-        True grid-cell area weights. If None, cos(lat) is used.
-    mask : xr.DataArray, optional
-        Additional boolean mask (True = keep).
-
-    Returns
-    -------
-    xr.DataArray
-        Weighted regional mean with spatial dimensions reduced.
-
-    Raises
-    ------
-    ValueError
-        If neither lat nor lon dimension is found in `da`.
-    """
-    reg_weights = obs_regional_weights(
-        da,
-        lonlat,
-        lat_name=lat_name,
-        lon_name=lon_name,
-        area=area,
-        mask=mask,
-    )
-
-    spatial_dims = [dim for dim in [lat_name, lon_name] if dim in da.dims]
-    if not spatial_dims:
-        raise ValueError(
-            f"DataArray does not contain spatial dimensions '{lat_name}' or '{lon_name}'."
-        )
-
-    return da.weighted(reg_weights).mean(dim=spatial_dims, skipna=True)

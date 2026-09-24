@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import inspect
 import json
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import xarray as xr
 
 from esp_lab.diagnostics import initial_shock_error
 from esp_lab.diagnostics.initial_shock_error import VERSION, compute_initial_shock_error_index
+from esp_lab.utils.code_identity import code_digest
 from esp_lab.utils.netcdf_utils import atomic_to_netcdf, load_netcdf
 from workflows.diagnostics import initial_shock_archive as block_archive
 
@@ -25,11 +25,12 @@ def _block_settings(settings):
     return prepared
 
 
-def _scientific_code_digest():
-    """Hash numerical error code without coupling caches to plot styling."""
-    return hashlib.sha256(
-        inspect.getsource(initial_shock_error.compute_initial_shock_error_index).encode()
-    ).hexdigest()
+def error_code_identity():
+    """Return (archive, metric) fingerprints of the RMSE/MAE compute path."""
+    return (
+        code_digest([compute_archive_plan, _block_settings]),
+        code_digest([initial_shock_error.compute_initial_shock_error_index]),
+    )
 
 
 def _cache_valid(path, digest):
@@ -53,8 +54,7 @@ def _cache_valid(path, digest):
 def plan_archive_run(settings, cases, variable):
     """Plan/reuse the block-index cache and a compact RMSE/MAE cache."""
     plan = block_archive.plan_archive_run(_block_settings(settings), cases, variable)
-    code_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    metric_hash = _scientific_code_digest()
+    code_hash, metric_hash = error_code_identity()
     force_compute = settings["cache"].get("force_compute", False)
     for task in plan:
         identity = {
