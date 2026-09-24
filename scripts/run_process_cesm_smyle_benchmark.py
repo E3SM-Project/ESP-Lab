@@ -10,8 +10,8 @@ For every (field, init_month) combination this script:
   5. Optionally runs sanity checks and saves diagnostic figures (--verify).
 
 Output files follow the same naming convention as the E3SMLE benchmark files:
-    BSMYLE{mm:02d}_{field}_N{nens:02d}_M{nlead:02d}_mon.nc
-    BSMYLE{mm:02d}_{field}_N{nens:02d}_M{nlead:02d}_seas.nc
+    CESM-SMYLE_init{mm:02d}_{field}_N{nens:02d}_M{nlead:02d}_mon.nc
+    CESM-SMYLE_init{mm:02d}_{field}_N{nens:02d}_M{nlead:02d}_seas.nc
 
 The output is on the NATIVE f09_g17 grid (0.9° × 1.25°).
 Regridding to an analysis grid is left to downstream notebooks/scripts so that
