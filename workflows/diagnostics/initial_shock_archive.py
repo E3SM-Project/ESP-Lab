@@ -163,7 +163,7 @@ def plan_archive_run(settings, cases, variable):
         task['digest'] = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         task['path'] = str(diagnostic_dir(task['source'], 'initial_shock', 'metrics', 'atm',
                                         variable['field'], root=settings['paths']['s2d_diag_root']) /
-                           f"init{task['month']:02d}_{years[0]}_{years[-1]}.nc")
+                           f"{task['source']}_init{task['month']:02d}_{years[0]}_{years[-1]}.nc")
         task['cached'] = _cache_valid(Path(task['path']), task['digest'])
         task['rebuild'] = force_compute or mode == 'rebuild' or not task['cached']
     if mode == 'require' and any(t['rebuild'] for t in tasks):
