@@ -25,7 +25,7 @@ import os
 import warnings
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Iterable, Optional, Tuple, Union
 from uuid import uuid4
 
 import numpy as np
@@ -537,85 +537,6 @@ def remove_monthly_climatology(
     return regsst
 
 
-def load_nmme_multimodel_regsst(
-    modelnames: List[str],
-    datadir: str,
-    regionlonlat: Iterable,
-    field: str = "sst",
-    s_slice: Optional[Tuple[Any, Any]] = ("264", "684"),
-) -> xr.DataArray:
-    """
-    Load all NMME models, compute regional SST anomalies, and concatenate
-    across model.
-
-    Parameters
-    ----------
-    modelnames : list of str
-        Model names to load.
-    datadir : str
-        Directory containing NMME model files.
-    regionlonlat : sequence of length 4
-        [lon1, lon2, lat1, lat2] for regional averaging.
-    field : str, optional
-        Variable name, default 'sst'.
-    s_slice : tuple, optional
-        Initialization time slice.
-
-    Returns
-    -------
-    xr.DataArray
-        Concatenated SST anomalies with a 'model' dimension.
-
-    Raises
-    ------
-    ValueError
-        If `modelnames` is empty or no models loaded successfully.
-    """
-    if not modelnames:
-        raise ValueError("modelnames must be a non-empty list.")
-
-    out = []
-    failed = []
-
-    for modelname in modelnames:
-        try:
-            ds = open_nmme_model(
-                datadir=datadir,
-                modelname=modelname,
-                field=field,
-                s_slice=s_slice,
-                time_var="S",
-            )
-
-            regsst = compute_regional_mean_sst(ds, regionlonlat=regionlonlat, field=field)
-            regsst = remove_monthly_climatology(regsst, modelname=modelname)
-
-            mem = ds.sizes.get("M", None)
-            warnings.warn(f"[NMME] {modelname}: M={mem}", stacklevel=2)
-
-            regsst = regsst.expand_dims(model=[modelname])
-            out.append(regsst)
-        except Exception as e:
-            warnings.warn(
-                f"[NMME] Failed to load model '{modelname}': {e}. Skipping.",
-                stacklevel=2,
-            )
-            failed.append(modelname)
-
-    if not out:
-        raise ValueError(
-            f"No models loaded successfully. Failed models: {failed}"
-        )
-
-    if failed:
-        warnings.warn(
-            f"[NMME] The following models were skipped due to errors: {failed}",
-            stacklevel=2,
-        )
-
-    return xr.concat(out, dim="model")
-
-
 def subset_init_month(
     nmme_regsst: xr.DataArray,
     init_month: int,
@@ -724,81 +645,3 @@ def attach_time_and_seasonalize(
     return ds, seas
 
 
-def preprocess_nmme_by_init_month(
-    nmme_regsst: xr.DataArray,
-    smyle_time_dict: Dict[int, xr.DataArray],
-    smyle_seas_time_dict: Dict[int, xr.DataArray],
-    cal: Any,
-    field_name: str = "sst",
-    init_months: Optional[List[int]] = None,
-) -> Dict[str, Dict[int, Any]]:
-    """
-    Process NMME data into monthly and seasonal outputs for each init month.
-
-    Parameters
-    ----------
-    nmme_regsst : xr.DataArray
-        Multi-model regional SST anomaly DataArray.
-    smyle_time_dict : dict
-        Mapping from init month (int) to SMYLE verification time DataArray.
-    smyle_seas_time_dict : dict
-        Mapping from init month (int) to SMYLE seasonal verification time DataArray.
-    cal : object
-        Calendar utility object with a `mon_to_seas_dask` method.
-    field_name : str, optional
-        Variable name, default 'sst'.
-    init_months : list of int, optional
-        Init months to process. Defaults to [2, 5, 8, 11].
-
-    Returns
-    -------
-    dict with keys:
-        - 'monthly'       : dict {month: DataArray}
-        - 'seasonal'      : dict {month: DataArray}
-        - 'monthly_time'  : dict {month: DataArray}
-        - 'seasonal_time' : dict {month: DataArray}
-
-    Raises
-    ------
-    ValueError
-        If any required init month key is missing from the time dicts.
-    """
-    if init_months is None:
-        init_months = _DEFAULT_INIT_MONTHS
-
-    missing_monthly = [m for m in init_months if m not in smyle_time_dict]
-    missing_seasonal = [m for m in init_months if m not in smyle_seas_time_dict]
-    if missing_monthly:
-        raise ValueError(
-            f"smyle_time_dict is missing keys for init months: {missing_monthly}."
-        )
-    if missing_seasonal:
-        raise ValueError(
-            f"smyle_seas_time_dict is missing keys for init months: {missing_seasonal}."
-        )
-
-    monthly: Dict[int, xr.DataArray] = {}
-    seasonal: Dict[int, xr.DataArray] = {}
-    monthly_time: Dict[int, xr.DataArray] = {}
-    seasonal_time: Dict[int, xr.DataArray] = {}
-
-    for m in init_months:
-        da = subset_init_month(nmme_regsst, init_month=m)
-        ds, seas = attach_time_and_seasonalize(
-            da,
-            smyle_time=smyle_time_dict[m],
-            cal=cal,
-            field_name=field_name,
-        )
-
-        monthly[m] = da
-        seasonal[m] = seas
-        monthly_time[m] = smyle_time_dict[m].sel(Y=da.Y)
-        seasonal_time[m] = smyle_seas_time_dict[m].sel(Y=seas.Y)
-
-    return {
-        "monthly": monthly,
-        "seasonal": seasonal,
-        "monthly_time": monthly_time,
-        "seasonal_time": seasonal_time,
-    }

@@ -49,26 +49,3 @@ def eofcalc_pcnorm(dat, w='sqrtcoslat', neofs=1, timeaxis='time', lonneg=None, l
 
     return pcs, eofs
 
-def proj_onto_eof(dat, eof, w='sqrtcoslat'):
-    """ project array dat onto the eof that has been obtained using "eofcalc_pcnorm".
-        Input: dat = the array to be projected onto the EOF of the form (time, lat, lon)
-               eof = the EOF calculated using "eofcalc_pcnorm) of the form (lat,lon)
-               w = If set to sqrtcoslat then sqrt(cos(lat)) weighting is used.
-                   Otherwise, set this to an array of the form (lat, lon) that contins 
-                   the weights with the same spatial dimensions as dat
-    """
-
-    if (w == 'sqrtcoslat'):
-        weights = np.sqrt(np.cos( dat.lat/180.)*np.pi)
-        weights = weights.expand_dims(dim={'lon':dat.lon.size})
-        weights = weights.transpose()
-        weights['lon'] = dat.lon
-
-    num = (dat*weights).dot(eof, dims=['lat','lon'])
-    denom = (eofs).dot( (eofs), dims=['lat','lon'])
-    proj = num/denom
-    
-    return proj
-
-
-

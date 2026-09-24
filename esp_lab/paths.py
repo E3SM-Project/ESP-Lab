@@ -94,15 +94,6 @@ def diagnostic_dir(
     return join_below(root, source, diagnostic, *parts)
 
 
-def multimodel_diagnostic_dir(
-    diagnostic: str,
-    *parts: str | Path,
-    root: str | Path,
-) -> Path:
-    """Return a canonical directory for cross-experiment diagnostics."""
-    return diagnostic_dir("multimodel", diagnostic, *parts, root=root)
-
-
 def figure_output_dir(
     diagnostic: str,
     *parts: str | Path,
@@ -120,7 +111,6 @@ __all__ = [
     "leadtime_telec_dir",
     "initial_conditions_dir",
     "diagnostic_dir",
-    "multimodel_diagnostic_dir",
     "figure_output_dir",
 ]
 

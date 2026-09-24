@@ -151,18 +151,6 @@ def expected_staged_land_input_attrs(field: str, source_kind: str, grid_tag: str
     }
 
 
-def validate_staged_land_input(da, path, source_kind: str, grid_tag: str):
-    """Validate the preprocessing contract attached to a staged input."""
-    expected = expected_staged_land_input_attrs(da.name, source_kind, grid_tag)
-    mismatches = {
-        key: (da.attrs.get(key), value)
-        for key, value in expected.items()
-        if da.attrs.get(key) != value
-    }
-    if mismatches:
-        raise ValueError(f"Input contract mismatch in {path}: {mismatches}")
-
-
 def normalized_target_years(target_years_by_lead: Mapping) -> dict[int, list[int]]:
     """Normalize lead-dependent verification cohorts for stable provenance."""
     normalized = {
@@ -1037,68 +1025,6 @@ def compute_land_acc_skill(
     return skill
 
 
-def plot_land_acc_maps(
-    skill: xr.Dataset,
-    *,
-    leads: Sequence[int] | None = None,
-    significance_level: float | None = None,
-    ncols: int = 2,
-    cmap: str = "RdBu_r",
-):
-    """Plot ACC maps for selected leads and return ``(figure, axes)``.
-
-    Cartopy and matplotlib are imported lazily so calculation-only workflows do
-    not need to initialize a plotting stack.
-    """
-    import matplotlib.pyplot as plt
-    import cartopy.crs as ccrs
-
-    if "corr" not in skill or "L" not in skill["corr"].dims:
-        raise ValueError("skill must contain corr with an L dimension")
-    if not {"lat", "lon"}.issubset(skill["corr"].dims):
-        raise ValueError("corr must contain lat and lon dimensions")
-    selected = list(skill.L.values if leads is None else leads)
-    if not selected:
-        raise ValueError("at least one lead must be selected")
-    unknown = [lead for lead in selected if lead not in skill.L.values]
-    if unknown:
-        raise KeyError(f"lead values not present in skill: {unknown}")
-    if significance_level is not None and not 0 < significance_level < 1:
-        raise ValueError("significance_level must be between 0 and 1")
-
-    ncols = max(1, min(int(ncols), len(selected)))
-    nrows = int(np.ceil(len(selected) / ncols))
-    projection = ccrs.PlateCarree()
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(5 * ncols, 2.9 * nrows),
-        subplot_kw={"projection": projection},
-        squeeze=False,
-    )
-    mappable = None
-    for ax, lead in zip(axes.ravel(), selected):
-        corr = skill["corr"].sel(L=lead)
-        if significance_level is not None:
-            if "pval" not in skill:
-                raise ValueError("significance masking requires skill['pval']")
-            corr = corr.where(skill["pval"].sel(L=lead) < significance_level)
-        mappable = corr.plot.pcolormesh(
-            ax=ax,
-            transform=projection,
-            cmap=cmap,
-            vmin=-1,
-            vmax=1,
-            add_colorbar=False,
-        )
-        ax.coastlines(linewidth=0.6)
-        ax.set_title(f"Lead {lead}")
-    for ax in axes.ravel()[len(selected) :]:
-        ax.set_visible(False)
-    fig.colorbar(mappable, ax=list(axes.ravel()[: len(selected)]), label="ACC", shrink=0.85)
-    return fig, axes
-
-
 __all__ = [
     "LAND_SKILL_REQUIRED_VARIABLES",
     "LAND_VARIABLES",
@@ -1115,7 +1041,6 @@ __all__ = [
     "land_skill_cache_status",
     "load_e3sm_land_monthly",
     "mask_c3s_swe_flags",
-    "plot_land_acc_maps",
     "prepare_land_field",
     "complete_calendar_seasonal_mean",
     "retain_reference_supported_leads",
@@ -1124,7 +1049,6 @@ __all__ = [
     "staged_land_input_path",
     "reference_land_input_path",
     "validate_land_skill_dataset",
-    "validate_staged_land_input",
     "retain_valid_seasonal_leads",
     "validate_land_reference_compatibility",
 ]

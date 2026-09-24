@@ -1,5 +1,4 @@
 from . import calendar_utils
-from . import colorbar_utils
 from . import colormap_utils
 from . import dask_utils
 from . import eof_utils
