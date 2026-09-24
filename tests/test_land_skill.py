@@ -316,22 +316,40 @@ def test_staged_land_input_path_preserves_source_identity(tmp_path):
     )
 
     assert path.parent == (
-        tmp_path / "JRA55_FOSIRL" / "leadtime_acc" / "inputs" / "land" / "H2OSOI"
+        tmp_path / "JRA55_FOSIRL" / "leadtime_acc" / "prepared_skill" / "lnd" / "H2OSOI"
     )
     assert path.name == (
-        "JRA55_FOSIRL05_H2OSOI_depth0-1.6m_integrated_mm_"
+        "JRA55_FOSIRL_init05_H2OSOI_depth0-1.6m_integrated_mm_"
         "seasonal_1x1deg_cell_centered.nc"
     )
 
 
-def test_land_cohort_token_changes_when_one_lead_cohort_changes():
-    first = {3: [1980, 1981], 6: [1980, 1981]}
-    second = {3: [1980, 1981], 6: [1980, 1982]}
-
-    assert land_skill.land_cohort_token(first) != land_skill.land_cohort_token(second)
-    assert land_skill.land_cohort_token(first).startswith(
-        "y1980-1981_n2perlead_l3-6_nl2"
+def test_reference_land_input_path_uses_observations_tree(tmp_path):
+    path = land_skill.reference_land_input_path(
+        tmp_path,
+        "CPC_Soil_Moisture_V2",
+        "h2osoi",
+        "1x1deg_cell_centered",
+        depth_range_m=(0.0, 1.6),
     )
+
+    assert path.parent == (
+        tmp_path / "observations" / "leadtime_acc" / "prepared_skill" / "lnd" / "H2OSOI"
+    )
+    assert path.name == (
+        "CPC_Soil_Moisture_V2_H2OSOI_depth0-1.6m_integrated_mm_"
+        "seasonal_1x1deg_cell_centered.nc"
+    )
+
+
+def test_land_cohort_token_is_fixed_and_readable():
+    first = {3: [1980, 1981], 6: [1980, 1981]}
+    shifted = {3: [1980, 1981], 6: [1981, 1980]}
+    wider = {3: [1980, 1981], 6: [1980, 1982]}
+
+    assert land_skill.land_cohort_token(first) == "y1980-1981_n2perlead_l3-6_nl2"
+    assert land_skill.land_cohort_token(shifted) == land_skill.land_cohort_token(first)
+    assert land_skill.land_cohort_token(wider) != land_skill.land_cohort_token(first)
 
 
 def test_validate_land_skill_dataset_checks_exact_provenance_and_cohorts():

@@ -11,7 +11,7 @@ from workflows.modes_of_variability import teleconnections
 
 
 def _reference_products(tmp_path: Path) -> dict[str, dict[str, str]]:
-    root = tmp_path / "ERA5" / "modes_variability"
+    root = tmp_path / "observations" / "modes_variability"
     field_path = root / "fields" / "era5_psl.nc"
     index_path = root / "modes" / "nam" / "indices" / "era5_nam_reference.nc"
     field_path.parent.mkdir(parents=True)
@@ -70,3 +70,14 @@ def test_require_rejects_stale_teleconnection(tmp_path):
 
     with pytest.raises(RuntimeError, match="incompatible"):
         teleconnections.ensure_products(products, ensure_mode="require", fdr=False)
+
+
+def test_output_filename_leads_with_source_token():
+    assert (
+        teleconnections.output_filename("AMO:JRA55_FOSIRL_init05")
+        == "JRA55_FOSIRL_init05_AMO_global_teleconnection.nc"
+    )
+    assert (
+        teleconnections.output_filename("NAM:reference")
+        == "reference_NAM_global_teleconnection.nc"
+    )

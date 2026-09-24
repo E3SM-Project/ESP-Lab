@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from esp_lab import env_paths, leadtime_prepared_cache, leadtime_skill_cache, stats
+from esp_lab import env_paths, leadtime_prepared_cache, leadtime_realm_skill, leadtime_skill_cache, stats
 from esp_lab import leadtime_workflow as workflow
 from esp_lab.data_access_obs import mon_to_seas_obs
 from esp_lab.leadtime_validation import check_remove_drift_sample
@@ -33,6 +33,17 @@ NOTEBOOK = Path(__file__).parents[1] / "jupyter/1a_ocn_leadtime_acc_skill_map.ip
 def _cell(index):
     cell = json.loads(NOTEBOOK.read_text())["cells"][index]
     return "".join(line for line in cell["source"] if not line.startswith("%"))
+
+
+def _cell_index(marker):
+    """Index of the one code cell containing marker, so inserted cells don't shift tests."""
+    cells = json.loads(NOTEBOOK.read_text())["cells"]
+    hits = [
+        i for i, cell in enumerate(cells)
+        if cell["cell_type"] == "code" and marker in "".join(cell["source"])
+    ]
+    assert len(hits) == 1, (marker, hits)
+    return hits[0]
 
 
 @pytest.fixture
@@ -56,14 +67,17 @@ def notebook_run(tmp_path):
         trackers.append(tracker)
         ns.update(
             np=np, xr=xr, cftime=cftime, os=os, Path=Path, stats=stats,
-            env_paths=env_paths,
+            env_paths=env_paths, leadtime_realm_skill=leadtime_realm_skill,
             workflow_resources=tracker, leadtime_acc_dir=leadtime_acc_dir,
             atomic_to_netcdf=atomic_to_netcdf, load_netcdf=load_netcdf,
             check_remove_drift_sample=check_remove_drift_sample,
         )
         exec(_cell(7), ns)
         ns["field"] = field
-        ns["cfg"] = dict(ns["VAR_CONFIG"][field], has_smyle_benchmark=has_smyle)
+        ns["cfg"] = dict(
+            ns["VAR_CONFIG"][field], has_smyle_benchmark=has_smyle,
+            obs_path_pattern=str(source_paths["obs"]),
+        )
         ns["analysis_component"] = ns["cfg"].get("component", "atm")
         ns["e3sm_field"] = ns["cfg"].get("e3sm_field", field)
         ns["smyle_field"] = ns["cfg"].get("smyle_field", field)
@@ -96,8 +110,8 @@ def notebook_run(tmp_path):
             load_benchmark=_forbid if (cached or not has_smyle) else lambda **kw: xr.Dataset({ns["smyle_field"]: smyle, "time": smyle_time}),
         )
         ns["obs_access"] = SimpleNamespace(
-            find_obs_file=_forbid if cached else lambda **kw: source_paths["obs"],
-            get_monthly_data=_forbid if cached else lambda **kw: _observations().to_dataset(name=ns["cfg"]["obs_var"]),
+            resolve_glob_files=_forbid if cached else lambda pattern: [Path(pattern)],
+            get_monthly_data_from_pattern=_forbid if cached else lambda *a, **kw: _observations().to_dataset(name=ns["cfg"]["obs_var"]),
             mon_to_seas_obs=mon_to_seas_obs,
         )
         grid = xr.Dataset(coords={"lat": smyle.lat, "lon": smyle.lon})
@@ -116,7 +130,8 @@ def notebook_run(tmp_path):
             if months:
                 model, time = _seasonal_data(2, missing=(field == "SST" and case == "case-b"))
                 ns["e3sm_seas_by_case_month"][case] = {11: xr.Dataset({field: model, "time": time})}
-        for index in (15, 17, 20, 23, 24, 25, 26, 27, 28, 32):
+        smyle_significance = _cell_index("CESM-SMYLE vs each E3SM hindcast ACC significance figure")
+        for index in (15, 17, 20, 23, 24, 25, 26, 27, 28, smyle_significance):
             exec(compile(_cell(index), f"1a_ocn_cell_{index}", "exec"), ns)
         return ns
 

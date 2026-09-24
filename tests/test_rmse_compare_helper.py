@@ -1,6 +1,7 @@
 import numpy as np
 import xarray as xr
 
+from esp_lab.leadtime_skill_cache import provenance_digest
 from workflows.leadtime_skill.rmse_comparison import (
     absolute_rmse_from_skill,
     area_weighted_mask_fraction,
@@ -15,7 +16,6 @@ from workflows.leadtime_skill.rmse_comparison import (
     make_obs_like_model_leads,
     make_obs_like_model_time,
     normalize_direct_rmse_leads,
-    provenance_digest,
     require_available_lead,
     safe_model_name,
     valid_area_weighted_fraction,
@@ -137,7 +137,8 @@ def test_direct_rmse_cache_contract_and_name_are_provenance_aware(tmp_path):
         f"{provenance_digest(dict(attrs), length=12)}.nc"
     )
     legacy_file.touch()
-    fallback_path = direct_rmse_cache_path(
+    # Hashed legacy names are never picked up: the fixed name is the only path.
+    fixed_path = direct_rmse_cache_path(
         root=tmp_path,
         source=kwargs["source"],
         component="atm",
@@ -146,7 +147,7 @@ def test_direct_rmse_cache_contract_and_name_are_provenance_aware(tmp_path):
         verification_years=kwargs["verification_years"],
         expected_attrs=attrs,
     )
-    assert fallback_path == legacy_file
+    assert fixed_path == path
     legacy_file.unlink()
 
 
