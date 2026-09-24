@@ -23,7 +23,6 @@ from .initial_shock import (
 )
 from .initial_shock_error import (
     compute_initial_shock_error_index,
-    compute_legacy_initial_shock_error_index,
     plot_error_heatmap,
 )
 from .s2d import S2DDiagnostics
@@ -50,7 +49,6 @@ __all__ = [
     "plot_normalized_change",
     "plot_std_ratio",
     "compute_initial_shock_error_index",
-    "compute_legacy_initial_shock_error_index",
     "plot_error_heatmap",
     "compute_skill",
     "discover_workflow_figures",

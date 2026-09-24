@@ -44,46 +44,6 @@ def leadtime_acc_dir(
     return join_below(root, source, "leadtime_acc", *parts)
 
 
-def initial_shock_dir(
-    source: str,
-    *parts: str | Path,
-    root: str | Path,
-) -> Path:
-    """Return a source-first initial shock diagnostic directory.
-
-    Examples are ``<root>/<source>/initial_shock/metrics`` and
-    ``<root>/multimodel/initial_shock/tables``.
-    """
-    return join_below(root, source, "initial_shock", *parts)
-
-
-def leadtime_telec_dir(
-    source: str,
-    *parts: str | Path,
-    root: str | Path,
-) -> Path:
-    """Return a source-first lead-time teleconnection diagnostic directory.
-
-    Examples are ``<root>/<source>/leadtime_telec`` and
-    ``<root>/observations/leadtime_telec``.
-    """
-    return join_below(root, source, "leadtime_telec", *parts)
-
-
-def initial_conditions_dir(
-    source: str,
-    *parts: str | Path,
-    root: str | Path,
-) -> Path:
-    """Return a source-first initial condition diagnostic directory.
-
-    Examples are ``<root>/<source>/initial_conditions/manifests`` and
-    ``<root>/multimodel/initial_conditions/tables``.
-    """
-    return join_below(root, source, "initial_conditions", *parts)
-
-
-
 def diagnostic_dir(
     source: str,
     diagnostic: str,
@@ -94,24 +54,11 @@ def diagnostic_dir(
     return join_below(root, source, diagnostic, *parts)
 
 
-def figure_output_dir(
-    diagnostic: str,
-    *parts: str | Path,
-    root: str | Path,
-) -> Path:
-    """Return a diagnostic-specific directory below the public figure root."""
-    return join_below(root, diagnostic, *parts)
-
-
 __all__ = [
     "normalize_root",
     "join_below",
     "leadtime_acc_dir",
-    "initial_shock_dir",
-    "leadtime_telec_dir",
-    "initial_conditions_dir",
     "diagnostic_dir",
-    "figure_output_dir",
 ]
 
 

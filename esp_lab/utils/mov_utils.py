@@ -408,13 +408,6 @@ def apply_polar_circular_boundary(ax, projection_name, *, enabled=True):
     ax.set_boundary(mpath.Path(vertices), transform=ax.transAxes)
 
 
-def _as_label_list(values, labels=None):
-    """Return string labels matching the given tick values."""
-    if labels is not None:
-        return [str(label) for label in labels]
-    return [str(value) for value in values]
-
-
 def configure_gridlines(
     ax,
     *,

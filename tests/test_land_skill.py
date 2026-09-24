@@ -405,24 +405,6 @@ def test_load_land_hindcast_forces_land_realm(monkeypatch):
     assert called["resolved_files"] == [["/data/TWS_200005_200204.nc"]]
 
 
-def test_seasonal_land_hindcast_preserves_dataset_time_variable(monkeypatch):
-    monthly = _land_dataset().rename({"time": "L"}).expand_dims(Y=[2000], M=[0])
-    monthly["time"] = xr.DataArray(
-        np.arange(2).reshape(1, 2),
-        dims=("Y", "L"),
-        coords={"Y": monthly.Y, "L": monthly.L},
-    )
-
-    def fake_mon_to_seas(ds):
-        assert "time" in ds
-        return ds
-
-    monkeypatch.setattr(land_skill.calendar_utils, "mon_to_seas_dask", fake_mon_to_seas)
-    out = land_skill.seasonal_land_hindcast(monthly, "TWS")
-
-    assert out.name == "TWS"
-
-
 def test_seasonal_land_hindcast_dataset_returns_valid_time(monkeypatch):
     monthly = _land_dataset().rename({"time": "L"}).expand_dims(Y=[2000], M=[0])
     monthly["time"] = xr.DataArray(
