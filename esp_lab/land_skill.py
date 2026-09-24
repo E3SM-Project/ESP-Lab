@@ -507,36 +507,6 @@ def complete_calendar_seasonal_mean(
     return seasonal
 
 
-def complete_calendar_monthly_change(monthly: xr.DataArray) -> xr.DataArray:
-    """Approximate monthly storage change from consecutive monthly means.
-
-    The result at month ``t`` is ``monthly(t) - monthly(t-1)`` and retains the
-    timestamp of ``t``. Missing calendar months are inserted before
-    differencing, so gaps cannot be mistaken for one-month changes.
-    """
-    if "time" not in monthly.dims:
-        raise ValueError("monthly reference must contain a time dimension")
-    if monthly.indexes["time"].has_duplicates:
-        raise ValueError("monthly reference contains duplicate timestamps")
-
-    attrs = dict(monthly.attrs)
-    complete = monthly.sortby("time").resample(time="MS").asfreq()
-    if complete.chunks is not None:
-        complete = complete.chunk({"time": min(24, complete.sizes["time"])})
-    change = complete.diff("time", label="upper")
-    change.attrs.update(attrs)
-    change.attrs.update(
-        {
-            "long_name": "monthly change in snow water equivalent",
-            "change_definition": "SWE(t) - SWE(t-1) from consecutive monthly means",
-            "change_timestamp": "later month t",
-            "change_approximation": "difference of monthly-mean storage values",
-            "calendar_completeness": "both consecutive calendar months required",
-        }
-    )
-    return change
-
-
 def retain_reference_supported_leads(
     data: xr.DataArray,
     valid_time: xr.DataArray,
@@ -779,54 +749,6 @@ def seasonal_land_hindcast_dataset(
             map(str, dropped)
         )
     return seasonal
-
-
-def monthly_land_hindcast_change_dataset(
-    monthly: xr.Dataset | xr.DataArray,
-    field: str = "H2OSNO",
-) -> xr.Dataset:
-    """Return monthly storage changes and their later-month valid times.
-
-    Lead 1 is dropped because no preceding hindcast month is available. The
-    output at lead ``L`` is the monthly-mean field at ``L`` minus that at
-    ``L-1``. Verification timestamps label the later month.
-    """
-    da = prepare_land_field(monthly, field)
-    if "L" not in da.dims:
-        raise ValueError("monthly hindcast field must contain an L dimension")
-    if isinstance(monthly, xr.Dataset) and "time" in monthly:
-        valid_time = monthly["time"]
-    elif "time" in da.coords:
-        valid_time = da["time"]
-    else:
-        raise ValueError("monthly hindcast input must provide verification time")
-    if not {"Y", "L"}.issubset(valid_time.dims):
-        raise ValueError("verification time must contain Y and L dimensions")
-    if da.sizes["L"] < 2:
-        raise ValueError("at least two monthly leads are required")
-
-    serial_month = valid_time.dt.year * 12 + valid_time.dt.month
-    spacing = serial_month.diff("L")
-    if spacing.chunks is not None:
-        spacing = spacing.compute()
-    if not bool((spacing == 1).all()):
-        raise ValueError("hindcast verification times must be consecutive months")
-
-    change = da.diff("L", label="upper").rename("DELTA_H2OSNO")
-    later_time = valid_time.isel(L=slice(1, None)).assign_coords(L=change.L)
-    change.attrs.update(da.attrs)
-    change.attrs.update(
-        {
-            "long_name": "monthly change in snow water equivalent",
-            "change_definition": "SWE(L) - SWE(L-1) from consecutive monthly means",
-            "change_timestamp": "later forecast month L",
-            "change_approximation": "difference of monthly-mean storage values",
-            "source_field": field,
-        }
-    )
-    out = change.to_dataset(name=change.name)
-    out["time"] = later_time
-    return out
 
 
 def retain_valid_seasonal_leads(
@@ -1115,56 +1037,6 @@ def compute_land_acc_skill(
     return skill
 
 
-def compute_land_monthly_acc_skill(
-    forecast_change: xr.DataArray,
-    valid_time: xr.DataArray,
-    reference_change: xr.DataArray,
-    climy0: int,
-    climy1: int,
-    *,
-    detrend: bool = True,
-    target_years_by_lead=None,
-) -> xr.Dataset:
-    """Remove lead-dependent drift and compute monthly ΔSWE map skill."""
-    required = {"Y", "L", "M"}
-    missing = required - set(forecast_change.dims)
-    if missing:
-        raise ValueError(f"forecast change is missing dimensions: {sorted(missing)}")
-    if not {"Y", "L"}.issubset(valid_time.dims):
-        raise ValueError("valid_time must contain Y and L dimensions")
-    if "time" not in reference_change.dims:
-        raise ValueError("reference change must contain time")
-    validate_land_reference_compatibility(forecast_change, reference_change)
-
-    model_anom, _ = stats.remove_drift(
-        forecast_change, valid_time, climy0, climy1
-    )
-    skill = stats.compute_skill_seasonal(
-        model_anom,
-        valid_time,
-        reference_change,
-        climy0,
-        climy1,
-        nleadavg=1,
-        nleads=forecast_change.sizes["L"],
-        resamp=0,
-        detrend=detrend,
-        monthly=True,
-        is_anomaly=False,
-        target_years_by_lead=target_years_by_lead,
-    )
-    skill.attrs.update(
-        {
-            "climatology": f"{climy0}-{climy1}",
-            "detrend": str(bool(detrend)).lower(),
-            "metric": "monthly delta-SWE lead-time ACC",
-            "field": "DELTA_H2OSNO",
-            "change_definition": "SWE(t) - SWE(t-1) from consecutive monthly means",
-        }
-    )
-    return skill
-
-
 def plot_land_acc_maps(
     skill: xr.Dataset,
     *,
@@ -1232,8 +1104,6 @@ __all__ = [
     "LAND_VARIABLES",
     "LandVariableSpec",
     "compute_land_acc_skill",
-    "compute_land_monthly_acc_skill",
-    "complete_calendar_monthly_change",
     "depth_integrated_soil_water_mm",
     "depth_weighted_soil_moisture",
     "elm_soil_layer_bounds",
@@ -1245,7 +1115,6 @@ __all__ = [
     "land_skill_cache_status",
     "load_e3sm_land_monthly",
     "mask_c3s_swe_flags",
-    "monthly_land_hindcast_change_dataset",
     "plot_land_acc_maps",
     "prepare_land_field",
     "complete_calendar_seasonal_mean",
