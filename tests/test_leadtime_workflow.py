@@ -24,8 +24,40 @@ from esp_lab.utils.resource_utils import ResourceTracker
 NOTEBOOK = Path(__file__).parents[1] / "jupyter/1a_atm_leadtime_acc_skill_map.ipynb"
 
 
-def _cell(index):
-    cell = json.loads(NOTEBOOK.read_text())["cells"][index]
+# Stages are located by a line unique to their cell, not by position, so
+# reorganizing the notebook (inserting or splitting cells) does not silently
+# point the tests at different code.
+IMPORT_CELL = "from esp_lab import leadtime_realm_skill"
+CONFIG_CELL = 'E3SM_REFERENCE_CASE = "E3SM-FOSIRL"'
+LAYOUT_CELL = "def e3sm_leadtime_dir(case_info, stage, *parts):"
+PLAN_CELL = '"cleanup_temporary": WORKFLOW_SETTINGS["cache"].get("cleanup_temp_files", True),'
+SEASONAL_CACHE_CELL = 'debug = WORKFLOW_SETTINGS["cache"]["debug_seasonal_cache"]'
+PIPELINE_CELLS = (
+    'target_dlat = WORKFLOW_SETTINGS["regrid"]["target_dlat"]',  # regrid E3SM
+    'smyle_nens = WORKFLOW_SETTINGS["smyle"]["nens"]',  # CESM-SMYLE benchmark
+    'obs_dir = WORKFLOW_SETTINGS["obs"]["data_dir"]',  # observations
+    "init_month: e3sm_seas_by_case_month[case_key][init_month].time.load()",  # time axes
+    'prepared_reuse = prepared_mode != "rebuild"',  # E3SM prepared anomalies
+    "smyle05_time = smyle11_time = None",  # SMYLE prepared anomalies
+    'if WORKFLOW_SETTINGS["diagnostics"].get("run_drift_check", False):',  # drift check
+    'force_compute = WORKFLOW_SETTINGS["skill"]["force_compute"]',  # E3SM skill
+    "smyle_overlap_skill_by_month = {}",  # SMYLE skill
+    'compare_cfg = WORKFLOW_SETTINGS["finite_ensemble_compare"]',  # finite-ensemble compare
+)
+
+
+def _cell(key):
+    """Return a code cell's source by position or by a line unique to that cell."""
+    cells = json.loads(NOTEBOOK.read_text())["cells"]
+    if isinstance(key, int):
+        cell = cells[key]
+    else:
+        matches = [
+            c for c in cells
+            if c["cell_type"] == "code" and key in "".join(c["source"])
+        ]
+        assert len(matches) == 1, f"{len(matches)} notebook cells contain {key!r}"
+        cell = matches[0]
     return "".join(line for line in cell["source"] if not line.startswith("%"))
 
 
@@ -95,7 +127,7 @@ def test_monthly_to_seasonal_cache_write_and_restart(tmp_path, monthly_leads, re
         netcdf_write_options={}, workflow_resources=tracker,
     )
     try:
-        exec(_cell(13), ns)
+        exec(_cell(SEASONAL_CACHE_CELL), ns)
         with xr.open_dataset(path) as saved:
             xr.testing.assert_allclose(saved, expected)
             assert saved.attrs == attrs
@@ -107,7 +139,7 @@ def test_monthly_to_seasonal_cache_write_and_restart(tmp_path, monthly_leads, re
         # A restarted cell must reuse the file without accessing raw input.
         ns.update(e3sm_raw_by_case_month={}, cal=SimpleNamespace(mon_to_seas_dask=_forbid),
                   workflow_resources=ResourceTracker())
-        exec(_cell(13), ns)
+        exec(_cell(SEASONAL_CACHE_CELL), ns)
         assert path.stat().st_mtime_ns == stamp
         xr.testing.assert_allclose(ns["e3sm_seas_by_case_month"]["case-a"][11], expected)
     finally:
@@ -218,6 +250,9 @@ def notebook_run(tmp_path):
         ns = {}
         for module in (leadtime_prepared_cache, leadtime_skill_cache, workflow, unit_conversion):
             ns.update({k: v for k, v in vars(module).items() if not k.startswith("_")})
+        # Run the notebook's own import cell so the namespace tracks its imports;
+        # archive access and regridding are replaced with test doubles below.
+        exec(_cell(IMPORT_CELL), ns)
         tracker = ResourceTracker()
         trackers.append(tracker)
         ns.update(
@@ -227,7 +262,7 @@ def notebook_run(tmp_path):
             atomic_to_netcdf=atomic_to_netcdf, load_netcdf=load_netcdf,
             check_remove_drift_sample=check_remove_drift_sample,
         )
-        exec(_cell(7), ns)
+        exec(_cell(CONFIG_CELL), ns)
         ns["field"] = field
         ns["cfg"] = dict(ns["VAR_CONFIG"][field], has_smyle_benchmark=has_smyle)
         ns["analysis_component"] = ns["cfg"].get("component", "atm")
@@ -258,7 +293,7 @@ def notebook_run(tmp_path):
         )
         smyle, smyle_time = _seasonal_data(3)
         ns["smyle_access"] = SimpleNamespace(
-            # Cell 9's inventory-identity planning calls benchmark_path()
+            # The planning cell's inventory-identity code calls benchmark_path()
             # unconditionally to build a cache key, independent of whether the
             # field actually has a CESM-SMYLE benchmark; only load_benchmark()
             # (the real data access) is gated by has_smyle_benchmark.
@@ -266,8 +301,13 @@ def notebook_run(tmp_path):
             load_benchmark=_forbid if (cached or not has_smyle) else lambda **kw: xr.Dataset({ns["smyle_field"]: smyle, "time": smyle_time}),
         )
         ns["obs_access"] = SimpleNamespace(
-            find_obs_file=_forbid if cached else lambda **kw: source_paths["obs"],
-            get_monthly_data=_forbid if cached else lambda **kw: _observations().to_dataset(name=ns["cfg"]["obs_var"]),
+            # Listing the configured obs_path_pattern is allowed on restart (it
+            # only inventories files); loading the data is not.
+            resolve_glob_files=lambda pattern: [source_paths["obs"]],
+            get_monthly_data_from_pattern=(
+                _forbid if cached
+                else lambda *a, **kw: _observations().to_dataset(name=ns["cfg"]["obs_var"])
+            ),
             mon_to_seas_obs=mon_to_seas_obs,
         )
         grid = xr.Dataset(coords={"lat": smyle.lat, "lon": smyle.lon})
@@ -279,15 +319,16 @@ def notebook_run(tmp_path):
         if cached:
             ns["compute_skill_lead_range"] = _forbid
             ns["compute_skill_lead_range_batch"] = _forbid
-        exec(_cell(9), ns)
-        # Inject already aggregated archive arrays at the boundary of cell 16.
+        exec(_cell(LAYOUT_CELL), ns)
+        exec(_cell(PLAN_CELL), ns)
+        # Inject already aggregated archive arrays at the regrid-stage boundary.
         ns["e3sm_seas_by_case_month"] = {}
         for case, months in ns["e3sm_months_to_prepare"].items():
             if months:
                 model, time = _seasonal_data(2)
                 ns["e3sm_seas_by_case_month"][case] = {11: xr.Dataset({field: model, "time": time})}
-        for index in (15, 17, 20, 23, 24, 25, 26, 27, 28, 32):
-            exec(compile(_cell(index), f"1a_cell_{index}", "exec"), ns)
+        for marker in PIPELINE_CELLS:
+            exec(compile(_cell(marker), f"1a_cell[{marker[:30]}]", "exec"), ns)
         return ns
 
     yield run, source_paths
