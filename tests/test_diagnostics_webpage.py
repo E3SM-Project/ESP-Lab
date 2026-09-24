@@ -38,7 +38,7 @@ def test_generate_webpage_success(tmp_path):
     with open(output_html, "r", encoding="utf-8") as fh:
         html_content = fh.read()
         
-    assert "ESP-Lab Diagnostic Viewer" in html_content
+    assert "E3SM-S2D Diagnostic Viewer" in html_content
     # Check if mock figures.json was correctly embedded
     assert "fig_nao_skill.png" in html_content
     assert "Seasonal NAO Skill" in html_content
