@@ -99,35 +99,3 @@ def regional_skill_metrics(
     })
 
 
-def plot_regional_acc(
-    curves_by_label: Mapping[str, xr.DataArray],
-    *,
-    regions: Sequence[str] | None = None,
-    title: str = "Regional ACC by lead",
-    figsize: tuple[float, float] = (12, 8),
-):
-    """Plot one ACC-versus-lead panel per region and return ``(fig, axes)``."""
-    import matplotlib.pyplot as plt
-
-    if not curves_by_label:
-        raise ValueError("Provide at least one labelled regional ACC curve.")
-    first = next(iter(curves_by_label.values()))
-    region_names = list(first.region.values if regions is None else regions)
-    ncols = min(3, len(region_names))
-    nrows = int(np.ceil(len(region_names) / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True, sharey=True, squeeze=False)
-    for ax, region in zip(axes.flat, region_names):
-        for label, curves in curves_by_label.items():
-            ax.plot(curves["L"], curves.sel(region=region), marker="o", label=label)
-        ax.axhline(0, color="0.45", linewidth=0.8)
-        ax.set_title(str(region))
-        ax.set_xlabel("Seasonal lead")
-        ax.set_ylabel("Area-weighted ACC")
-        ax.set_ylim(-1, 1)
-        ax.grid(alpha=0.25)
-    for ax in axes.flat[len(region_names):]:
-        ax.remove()
-    axes.flat[0].legend()
-    fig.suptitle(title)
-    fig.tight_layout()
-    return fig, axes

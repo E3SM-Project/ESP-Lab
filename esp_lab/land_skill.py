@@ -140,17 +140,6 @@ def reference_land_input_path(
     return directory / filename
 
 
-def expected_staged_land_input_attrs(field: str, source_kind: str, grid_tag: str):
-    """Return the required contract for one staged land input."""
-    return {
-        "processing_stage": "analysis_ready_land_acc_input_v2",
-        "field": field.upper(),
-        "source_kind": source_kind,
-        "horizontal_grid": grid_tag,
-        "seasonal_convention": "centered_3month_DJF_MAM_JJA_SON",
-    }
-
-
 def normalized_target_years(target_years_by_lead: Mapping) -> dict[int, list[int]]:
     """Normalize lead-dependent verification cohorts for stable provenance."""
     normalized = {
@@ -669,30 +658,6 @@ def load_e3sm_land_monthly(
     )
 
 
-def seasonal_land_hindcast(
-    monthly: xr.Dataset | xr.DataArray,
-    field: str,
-    *,
-    soil_layer: int | None = None,
-    soil_depth_m: float | None = None,
-    soil_depth_range_m: tuple[float, float] | None = None,
-    soil_layer_bounds_m: xr.DataArray | np.ndarray | Sequence[float] | None = None,
-    min_soil_coverage_fraction: float = 0.999,
-    soil_output: str = "volumetric_mean",
-) -> xr.DataArray:
-    """Select a land map field and form centered DJF/MAM/JJA/SON means."""
-    return seasonal_land_hindcast_dataset(
-        monthly,
-        field,
-        soil_layer=soil_layer,
-        soil_depth_m=soil_depth_m,
-        soil_depth_range_m=soil_depth_range_m,
-        soil_layer_bounds_m=soil_layer_bounds_m,
-        min_soil_coverage_fraction=min_soil_coverage_fraction,
-        soil_output=soil_output,
-    )[get_land_variable_spec(field).field]
-
-
 def seasonal_land_hindcast_dataset(
     monthly: xr.Dataset | xr.DataArray,
     field: str,
@@ -1035,7 +1000,6 @@ __all__ = [
     "elm_soil_layer_bounds",
     "get_land_variable_spec",
     "expected_land_skill_attrs",
-    "expected_staged_land_input_attrs",
     "land_cohort_token",
     "land_depth_token",
     "land_skill_cache_status",
@@ -1044,7 +1008,6 @@ __all__ = [
     "prepare_land_field",
     "complete_calendar_seasonal_mean",
     "retain_reference_supported_leads",
-    "seasonal_land_hindcast",
     "seasonal_land_hindcast_dataset",
     "staged_land_input_path",
     "reference_land_input_path",

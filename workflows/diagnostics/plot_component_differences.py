@@ -71,50 +71,6 @@ FIG_DPI = 150
 # Plot helpers
 # ---------------------------------------------------------------------------
 
-def _map_plot(diff_da: xr.DataArray, title: str, outpath: Path) -> None:
-    """Simple filled-contour map of a 2-D difference field."""
-    fig, ax = plt.subplots(figsize=(10, 4), dpi=FIG_DPI)
-    try:
-        # Try pcolormesh with lat/lon if available
-        if "lat" in diff_da.dims and "lon" in diff_da.dims:
-            vmax = float(np.nanpercentile(np.abs(diff_da.values), 98))
-            vmax = vmax if vmax > 0 else 1.0
-            pcm = ax.pcolormesh(
-                diff_da["lon"].values,
-                diff_da["lat"].values,
-                diff_da.values,
-                cmap="RdBu_r",
-                vmin=-vmax,
-                vmax=vmax,
-                shading="auto",
-            )
-            ax.set_xlabel("Longitude", fontsize=FS["label"])
-            ax.set_ylabel("Latitude", fontsize=FS["label"])
-        else:
-            # Unstructured mesh: 1-D array → histogram fallback
-            vals = diff_da.values.ravel()
-            ax.hist(vals[np.isfinite(vals)], bins=80, color="steelblue", alpha=0.8)
-            ax.axvline(0, color="k", lw=1, ls="--")
-            ax.set_xlabel("ΔX", fontsize=FS["label"])
-            ax.set_ylabel("Count", fontsize=FS["label"])
-            pcm = None
-    except Exception as exc:
-        warnings.warn(f"_map_plot fallback for {outpath.name}: {exc}", stacklevel=2)
-        vals = diff_da.values.ravel()
-        ax.hist(vals[np.isfinite(vals)], bins=80, color="steelblue", alpha=0.8)
-        pcm = None
-
-    if pcm is not None:
-        cbar = fig.colorbar(pcm, ax=ax, pad=0.02, fraction=0.03)
-        cbar.ax.tick_params(labelsize=FS["colorbar"])
-
-    ax.set_title(title, fontsize=FS["title"])
-    ax.tick_params(labelsize=FS["tick"])
-    plt.tight_layout()
-    fig.savefig(outpath, bbox_inches="tight")
-    plt.close(fig)
-
-
 def _plot_native_field(ax, da: xr.DataArray, title: str, *, categorical: bool = False):
     """Plot a structured or MPAS-native field without regridding."""
     plot_da = da

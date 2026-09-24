@@ -28,19 +28,7 @@ from esp_lab.diagnostics import (
     DEFAULT_CLIMATOLOGY_END_YEAR,
     DEFAULT_CLIMATOLOGY_START_YEAR,
 )
-from esp_lab.diagnostics.sst_index import (
-    ELI_ALGORITHM_VERSION,
-    REGIONS,
-    VALID_REGIONS,
-    compute_eli_latlon_sst,
-    derive_indices,
-    derive_indices_from_anomalies,
-    index_file_label,
-    period_tag,
-    required_base_regions,
-    standardize_index_anomaly,
-    write_netcdf_replace,
-)
+from esp_lab.diagnostics.sst_index import ELI_ALGORITHM_VERSION, REGIONS, VALID_REGIONS, compute_eli_latlon_sst, derive_indices_from_anomalies, index_file_label, period_tag, required_base_regions, standardize_index_anomaly, write_netcdf_replace
 from esp_lab.utils import calendar_utils as cal
 from esp_lab.utils.filename_utils import source_init_prefix
 
@@ -470,72 +458,6 @@ def subset_init_month(da: xr.DataArray, init_month: int) -> tuple[xr.DataArray, 
         name="time",
     )
     return out, valid_time
-
-
-def _standardize_obs(ds: xr.Dataset, var: str) -> xr.DataArray:
-    rename = {}
-    if "latitude" in ds.coords:
-        rename["latitude"] = "lat"
-    if "longitude" in ds.coords:
-        rename["longitude"] = "lon"
-    ds = ds.rename(rename)
-    if ds["lat"][0] > ds["lat"][-1]:
-        ds = ds.reindex(lat=ds.lat[::-1])
-    if ds["lon"].min() >= 0:
-        lon = (((ds["lon"] + 180) % 360) - 180).astype(ds["lon"].dtype)
-        ds = ds.assign_coords(lon=lon).sortby("lon")
-    sst = ds[var]
-    return xr.where(sst < -2.0, -1.8, sst)
-
-
-def _obs_region_mean(sst: xr.DataArray, lonlat: list[float]) -> xr.DataArray:
-    lon_w, lon_e, lat_s, lat_n = lonlat
-    lon1 = ((lon_w + 180.0) % 360.0) - 180.0
-    lon2 = ((lon_e + 180.0) % 360.0) - 180.0
-    lat_slice = slice(lat_s, lat_n)
-    if (lon_e - lon_w) % 360 == 0:
-        tmp = sst.sel(lat=lat_slice)
-    elif lon1 <= lon2:
-        tmp = sst.sel(lat=lat_slice, lon=slice(lon1, lon2))
-    else:
-        tmp = xr.concat(
-            [
-                sst.sel(lat=lat_slice, lon=slice(lon1, 180.0)),
-                sst.sel(lat=lat_slice, lon=slice(-180.0, lon2)),
-            ],
-            dim="lon",
-        )
-    weights = np.cos(np.deg2rad(tmp["lat"]))
-    return tmp.weighted(weights).mean(("lon", "lat"), skipna=True).rename("sst")
-
-
-def _obs_eli(sst: xr.DataArray) -> xr.DataArray:
-    return _eli_from_sst(sst, "lon", "lat")
-
-
-def _obs_anom(da: xr.DataArray, clim_start: int, clim_end: int) -> xr.DataArray:
-    clim = da.sel(time=slice(f"{clim_start}-01-01", f"{clim_end}-12-31"))
-    climo = clim.groupby("time.month").mean("time", skipna=True)
-    return da.groupby("time.month") - climo
-
-
-def _derive_obs_indices(
-    base: dict[str, xr.DataArray],
-    regions: list[str],
-    clim_start: int,
-    clim_end: int,
-) -> dict[str, xr.DataArray]:
-    if not base:
-        return {}
-    time = next(iter(base.values()))["time"]
-    derived = derive_indices(
-        base,
-        time,
-        clim_start,
-        clim_end,
-        is_model=False,
-    )
-    return {region: derived[region] for region in regions if region in derived}
 
 
 def process_nmme(

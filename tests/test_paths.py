@@ -4,12 +4,8 @@ import pytest
 
 from esp_lab.paths import (
     diagnostic_dir,
-    figure_output_dir,
-    initial_conditions_dir,
-    initial_shock_dir,
     join_below,
     leadtime_acc_dir,
-    leadtime_telec_dir,
     normalize_root,
 )
 
@@ -49,34 +45,13 @@ def test_path_builders_use_explicit_roots(tmp_path):
     assert leadtime_acc_dir(
         "JRA55_FOSIRL", "skill", "atm", "TREFHT", root=tmp_path
     ) == tmp_path / "JRA55_FOSIRL" / "leadtime_acc" / "skill" / "atm" / "TREFHT"
-    assert initial_shock_dir(
-        "JRA55_FOSIRL", "metrics", "atm", root=tmp_path
-    ) == tmp_path / "JRA55_FOSIRL" / "initial_shock" / "metrics" / "atm"
-    assert leadtime_telec_dir(
-        "JRA55_FOSIRL", root=tmp_path
-    ) == tmp_path / "JRA55_FOSIRL" / "leadtime_telec"
-    assert initial_conditions_dir(
-        "JRA55_FOSIRL", "manifests", root=tmp_path
-    ) == tmp_path / "JRA55_FOSIRL" / "initial_conditions" / "manifests"
-    assert initial_conditions_dir(
-        "multimodel", "tables", root=tmp_path
-    ) == tmp_path / "multimodel" / "initial_conditions" / "tables"
     assert diagnostic_dir(
         "JRA55_FOSIRL", "sst_index", "timeseries", root=tmp_path
     ) == tmp_path / "JRA55_FOSIRL" / "sst_index" / "timeseries"
-    assert figure_output_dir(
-        "sst_index", "timeseries", root=tmp_path
-    ) == tmp_path / "sst_index" / "timeseries"
 
 
 def test_path_builders_require_an_explicit_root():
     with pytest.raises(TypeError, match="required keyword-only argument: 'root'"):
         leadtime_acc_dir("JRA55_FOSIRL", "skill")
-    with pytest.raises(TypeError, match="required keyword-only argument: 'root'"):
-        initial_shock_dir("JRA55_FOSIRL", "metrics")
-    with pytest.raises(TypeError, match="required keyword-only argument: 'root'"):
-        leadtime_telec_dir("JRA55_FOSIRL")
-    with pytest.raises(TypeError, match="required keyword-only argument: 'root'"):
-        initial_conditions_dir("JRA55_FOSIRL")
 
 
