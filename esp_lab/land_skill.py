@@ -85,7 +85,11 @@ def staged_land_input_path(
     init_month: int | None = None,
     depth_range_m: tuple[float, float] | None = None,
 ):
-    """Construct one analysis-ready staged land-input path."""
+    """Construct one analysis-ready staged land-input path.
+
+    Files sit under ``<root>/<source>/leadtime_acc/prepared_skill/lnd/<FIELD>/``,
+    matching the atm/ocn prepared-skill layout.
+    """
     from .paths import leadtime_acc_dir
 
     field = field.upper()
@@ -97,7 +101,7 @@ def staged_land_input_path(
     if init_month is not None:
         if not 1 <= int(init_month) <= 12:
             raise ValueError("init_month must be between 1 and 12")
-        parts[-1] = f"{source_token}{int(init_month):02d}"
+        parts.append(f"init{int(init_month):02d}")
     parts.append(field)
     if depth:
         parts.append(depth)
@@ -106,9 +110,34 @@ def staged_land_input_path(
         raise ValueError("grid_tag must contain a filename-safe character")
     parts.extend(("seasonal", grid_token))
     directory = leadtime_acc_dir(
-        source_token, "inputs", "land", field, root=root
+        source_token, "prepared_skill", "lnd", field, root=root
     )
     return directory / ("_".join(parts) + ".nc")
+
+
+def reference_land_input_path(
+    root,
+    product: str,
+    field: str,
+    grid_tag: str,
+    *,
+    depth_range_m: tuple[float, float] | None = None,
+):
+    """Construct the analysis-ready path of one land reference (observation) input.
+
+    References sit with the other realms' prepared observations under
+    ``<root>/observations/leadtime_acc/prepared_skill/lnd/<FIELD>/``; the
+    product-prefixed filename matches :func:`staged_land_input_path`.
+    """
+    from .paths import leadtime_acc_dir
+
+    filename = staged_land_input_path(
+        root, product, field, grid_tag, depth_range_m=depth_range_m
+    ).name
+    directory = leadtime_acc_dir(
+        "observations", "prepared_skill", "lnd", field.upper(), root=root
+    )
+    return directory / filename
 
 
 def expected_staged_land_input_attrs(field: str, source_kind: str, grid_tag: str):
@@ -146,7 +175,12 @@ def normalized_target_years(target_years_by_lead: Mapping) -> dict[int, list[int
 
 
 def land_cohort_token(target_years_by_lead: Mapping) -> str:
-    """Return a readable token plus digest for exact lead-dependent cohorts."""
+    """Return a fixed, readable token for lead-dependent cohorts.
+
+    The exact per-lead years are recorded in the skill file's attributes
+    (``target_years_digest``) and checked on reuse, so they are not encoded
+    in the filename.
+    """
     cohorts = normalized_target_years(target_years_by_lead)
     all_years = [year for years in cohorts.values() for year in years]
     sample_counts = {len(years) for years in cohorts.values()}
@@ -157,8 +191,7 @@ def land_cohort_token(target_years_by_lead: Mapping) -> str:
     )
     year_token = f"y{min(all_years)}-{max(all_years)}_{count_token}"
     lead_token = f"l{min(cohorts)}-{max(cohorts)}_nl{len(cohorts)}"
-    digest = provenance_digest(cohorts, length=10)
-    return f"{year_token}_{lead_token}_c{digest}"
+    return f"{year_token}_{lead_token}"
 
 
 def expected_land_skill_attrs(
@@ -1220,6 +1253,7 @@ __all__ = [
     "seasonal_land_hindcast",
     "seasonal_land_hindcast_dataset",
     "staged_land_input_path",
+    "reference_land_input_path",
     "validate_land_skill_dataset",
     "validate_staged_land_input",
     "retain_valid_seasonal_leads",

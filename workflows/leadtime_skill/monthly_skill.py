@@ -14,6 +14,7 @@ from esp_lab.leadtime_workflow import compute_monthly_skill_lead_range
 from esp_lab.paths import leadtime_acc_dir
 from esp_lab.utils import regrid_utils as regrid
 from esp_lab.utils.netcdf_utils import atomic_to_netcdf, load_netcdf
+from esp_lab.utils.filename_utils import source_init_prefix
 
 
 MONTHLY_SKILL_VARIABLES = (
@@ -92,7 +93,7 @@ def _monthly_path(
         source_tag, "skill_monthly", cache_realm, field, root=Path(root)
     )
     return directory / (
-        f"{source_tag}{init_month:02d}_{field}_monthly_skill_"
+        f"{source_init_prefix(source_tag, init_month)}_{field}_monthly_skill_"
         f"y1980-{year_end}_clim1981-2010_l1-24.nc"
     )
 
@@ -249,7 +250,7 @@ def build_land_monthly_skill_caches(
     climatology_years: tuple[int, int] = (1981, 2010),
     members: Sequence[str] = tuple(f"EN{i:02d}" for i in range(10)),
     nlead: int = 24, depth_range_m: tuple[float, float] | None = None,
-    cache_realm: str = "land",
+    cache_realm: str = "lnd",
 ) -> list[Path]:
     """Build independent monthly land skill caches from raw model/reference data."""
     case_by_tag = {str(value["cache_tag"]): value for value in cases.values()}

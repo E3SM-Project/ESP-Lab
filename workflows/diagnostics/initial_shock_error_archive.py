@@ -71,7 +71,11 @@ def plan_archive_run(settings, cases, variable):
             },
         }
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
-        path = Path(task["path"]).with_name(f"rmse_mae_init{task['month']:02d}_{digest[:20]}.nc")
+        # Fixed name next to the index cache (<source>_rmse_mae_init<MM>_<y0>_<y1>.nc);
+        # the digest is stored in the file and checked by _cache_valid, so a stale
+        # cache is rebuilt in place.
+        index_name = Path(task["path"]).name.removeprefix(f"{task['source']}_")
+        path = Path(task["path"]).with_name(f"{task['source']}_rmse_mae_{index_name}")
         task["error_identity"] = identity
         task["error_digest"] = digest
         task["error_path"] = str(path)

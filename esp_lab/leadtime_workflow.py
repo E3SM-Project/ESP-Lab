@@ -157,6 +157,35 @@ def resolve_source_revision(
     return revision
 
 
+def observation_source_identity(
+    *, archive_root, product, variable, years, path_pattern,
+    mode, configured_revision, snapshot_dir, paths=(),
+):
+    """Return the observation-source identity stored in prepared observation caches.
+
+    Every workflow that writes ``observations/.../prepared_skill`` caches (the
+    1a notebooks and the teleconnection inputs) must use this, so a cache built
+    by one is recognised as current by the others instead of being rebuilt.
+    ``paths`` are the files matched by ``path_pattern``; they are inventoried in
+    ``inventory`` mode and ignored in ``snapshot`` mode.
+    """
+    root = str(Path(path_pattern).parent)
+    year_start, year_end = (str(year) for year in years)
+    revision = resolve_source_revision(
+        mode, configured_revision,
+        identity={
+            "archive_root": root, "product": product, "variable": variable,
+            "years": [year_start, year_end],
+        },
+        snapshot_dir=snapshot_dir, paths=paths, root=root,
+    )
+    return source_fingerprint(
+        {"archive_root": str(archive_root), "product": product, "variable": variable,
+         "archive_years": f"{year_start}-{year_end}"},
+        source_revision=revision,
+    )
+
+
 def ocean_mask_identity(mask):
     """Identify the actual common domain, including its grid coordinates."""
     mask = mask.transpose("lat", "lon").compute()

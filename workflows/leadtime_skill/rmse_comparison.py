@@ -18,7 +18,6 @@ from esp_lab.leadtime_skill_cache import (
     expected_skill_cache_attrs,
     generate_member_indices,
     member_indices_checksum,
-    provenance_digest,
 )
 from esp_lab.paths import leadtime_acc_dir
 from esp_lab.utils.unit_conversion import (
@@ -179,26 +178,21 @@ def direct_rmse_cache_path(
     verification_years,
     expected_attrs: Mapping | None = None,
 ):
-    """Return a deterministic path for one direct-RMSE result, with fallback to legacy hashed file."""
+    """Return the fixed path for one direct-RMSE result.
+
+    Provenance (``expected_attrs``) is validated from the file's attributes by
+    the caller, not encoded in the name; the argument is accepted for callers
+    that still pass it.
+    """
+    del expected_attrs
     directory = leadtime_acc_dir(
         source, "comparison", component, "direct_rmse", variable, root=root
     )
     directory.mkdir(parents=True, exist_ok=True)
-    canonical = directory / (
+    return directory / (
         f"{safe_model_name(source)}_{variable}_direct_rmse_init{int(init_month):02d}_"
         f"years_{compact_year_tag(verification_years)}.nc"
     )
-    if canonical.exists():
-        return canonical
-    if expected_attrs:
-        legacy = directory / (
-            f"{safe_model_name(source)}_{variable}_direct_rmse_init{int(init_month):02d}_"
-            f"years_{compact_year_tag(verification_years)}_"
-            f"{provenance_digest(dict(expected_attrs), length=12)}.nc"
-        )
-        if legacy.exists():
-            return legacy
-    return canonical
 
 
 def rmse_comparison_fraction(left_rmse, right_rmse, *, iteration_dim="iteration"):
