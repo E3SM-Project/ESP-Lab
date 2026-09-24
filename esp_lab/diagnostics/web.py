@@ -94,7 +94,6 @@ def _infer_metric(filename: str) -> str:
     candidates = (
         "regional_acc_nrmse_skill",
         "regional_acc_nrmse",
-        "leadtime_drift",
         "global_teleconnection_patterns",
         "correlation_reference_comparison",
         "taylor_diagram",
@@ -228,8 +227,6 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
         or metric_lower.startswith("leadtime_acc")
     ):
         return "LEAD_ACC"
-    if metric_lower.startswith("leadtime_drift") or "_drift" in stem:
-        return "LEAD_DRIFT"
     if (
         stem.startswith(("fig_atm_rmse_", "fig_ocn_rmse_", "fig_lnd_rmse_", "fig_rmse_compare_", "fig_lead_rmse_", "fig_1b_", "fig_1c_", "fig_2a_", "fig_2b_"))
         or metric_lower.startswith("leadtime_rmse")
@@ -462,18 +459,6 @@ def _infer_shortname_and_type(
         else:
             shortname = "Teleconnection"
             btn_type = "Map"
-
-    elif group == "LEAD_DRIFT":
-        for v in ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"]:
-            if v.lower() in stem_lower:
-                shortname = v
-                break
-        if "spatial_maps" in stem_lower:
-            btn_type = "Spatial Maps"
-        elif "regime_fraction" in stem_lower:
-            btn_type = "Regime Fraction"
-        else:
-            btn_type = "Drift Metric"
 
     elif group == "TC":
         shortname = "Tropical Cyclones"
@@ -2433,7 +2418,6 @@ def _build_html_template(manifest: dict) -> str:
             "ELI": "ELI Diagnostics",
             "INITIAL_SHOCK": "Initial Shock",
             "TELECONNECTIONS": "Teleconnections",
-            "LEAD_DRIFT": "Lead-time Drift",
             "TC": "Tropical Cyclones",
             "OTHER": "Other"
         };
@@ -2448,7 +2432,6 @@ def _build_html_template(manifest: dict) -> str:
             "ELI": "Ensemble ENSO Longitude Index (ELI) skill scores, tracking metrics, lead-time climatologies, and NMME benchmarks.",
             "INITIAL_SHOCK": "Quantification of initialization shock, step changes between seasonal start dates, scatter distributions, and error heatmaps.",
             "TELECONNECTIONS": "Global climate mode teleconnection pattern correlation maps, comprehensive summaries, and Taylor diagrams.",
-            "LEAD_DRIFT": "Lead-time drift analysis and climatology metrics.",
             "TC": "Tropical cyclone statistics and track density diagnostics.",
             "OTHER": "Additional workflow diagnostics."
         };
@@ -2550,12 +2533,6 @@ def _build_html_template(manifest: dict) -> str:
                 if (metric.includes("compare")) return "MODEL_COMPARISON";
                 if (metric.includes("diff")) return "DIFFERENCE";
                 return "SKILL_MAP";
-            }
-            if (fig.group === "LEAD_DRIFT") {
-                if (file.includes("spatial_maps")) return "SKILL_MAP";
-                if (file.includes("regime_fraction")) return "DRIFT";
-                if (file.includes("drift")) return "DRIFT";
-                return "SKILL";
             }
             if (fig.group === "LEAD_RMSE") {
                 if (metric.startsWith("rmse_compare")) return "MODEL_COMPARISON";
