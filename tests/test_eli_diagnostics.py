@@ -23,10 +23,11 @@ def test_eli_notebook_resolves_index_in_model_filename_templates():
         "".join(cell.get("source", [])) for cell in notebook["cells"]
     )
 
-    assert 'f"E3SMLE{{init_month:02d}}_{INDEX}' in source
-    assert 'f"BSMYLE{{init_month:02d}}_{INDEX}' in source
-    assert '"E3SMLE{init_month:02d}_{INDEX}' not in source
-    assert '"BSMYLE{init_month:02d}_{INDEX}' not in source
+    # Model files start with their source folder name (cache tag / CESM-SMYLE).
+    assert 'f"{{prefix}}_init{{init_month:02d}}_{INDEX}' in source
+    assert 'f"CESM-SMYLE_init{{init_month:02d}}_{INDEX}' in source
+    assert 'e3sm_template.replace("{prefix}", entry["cache_tag"])' in source
+    assert "E3SMLE{" not in source and "BSMYLE{" not in source
     assert '"cache_mode": "auto"' in source
     assert "run_process_native_eli.py" in source
     assert "REPO_ROOT = Path(eli_tools.__file__).resolve().parents[1]" in source

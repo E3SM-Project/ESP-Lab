@@ -69,7 +69,7 @@ def test_archive_cache_uses_stable_exact_period_filename(archive_inputs):
 
     task = archive.plan_archive_run(settings, cases, variable)[0]
 
-    assert Path(task['path']).name == 'init05_1980_1981.nc'
+    assert Path(task['path']).name == f"{task['source']}_init05_1980_1981.nc"
 
 
 def test_plot_source_file_is_excluded_from_cache_identity(archive_inputs, monkeypatch):
@@ -250,4 +250,5 @@ def test_rmse_threshold_change_reuses_6a_cache_and_rebuilds_only_6b(archive_inpu
     assert not changed[0]['rebuild']
     assert changed[0]['path'] == initial[0]['path']
     assert changed[0]['error_rebuild']
-    assert changed[0]['error_path'] != initial[0]['error_path']
+    # Fixed name: the stale 6b cache is rebuilt in place, not written to a new file.
+    assert changed[0]['error_path'] == initial[0]['error_path']
