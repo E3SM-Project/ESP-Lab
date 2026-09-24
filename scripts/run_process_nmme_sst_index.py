@@ -43,6 +43,7 @@ from esp_lab.diagnostics.sst_index import (
     write_netcdf_replace,
 )
 from esp_lab.utils import calendar_utils as cal
+from esp_lab.utils.filename_utils import source_init_prefix
 
 
 DEFAULT_NMME_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/NMME/data_hindcast_by_member")
@@ -803,7 +804,7 @@ def save_timeseries_outputs(
         )
         ds_mon.attrs.update(output_attrs)
         ds_mon["sst"].attrs.update(output_attrs)
-        _write_netcdf_replace(ds_mon, timeseries_dir / f"NMME{init_month:02d}_{label}_mon_dd_{period}.nc")
+        _write_netcdf_replace(ds_mon, timeseries_dir / f"{source_init_prefix('NMME', init_month)}_{label}_mon_dd_{period}.nc")
 
         ds_seas = xr.Dataset(
             {
@@ -813,7 +814,7 @@ def save_timeseries_outputs(
         )
         ds_seas.attrs.update(output_attrs)
         ds_seas["sst"].attrs.update(output_attrs)
-        _write_netcdf_replace(ds_seas, timeseries_dir / f"NMME{init_month:02d}_{label}_seas_dd_{period}.nc")
+        _write_netcdf_replace(ds_seas, timeseries_dir / f"{source_init_prefix('NMME', init_month)}_{label}_seas_dd_{period}.nc")
     return timeseries_dir
 
 
