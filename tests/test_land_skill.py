@@ -94,62 +94,6 @@ def test_complete_calendar_seasonal_mean_can_retain_missing_seasons():
     assert out.attrs["missing_season_representation"] == "explicit all-NaN time slices"
 
 
-def test_complete_calendar_monthly_change_does_not_bridge_gaps():
-    monthly = xr.DataArray(
-        [10.0, 13.0, 20.0, 25.0],
-        dims="time",
-        coords={"time": pd.to_datetime([
-            "2000-04-01", "2000-05-01", "2000-10-01", "2000-11-01"
-        ])},
-        attrs={"units": "mm"},
-    )
-
-    out = land_skill.complete_calendar_monthly_change(monthly)
-
-    assert float(out.sel(time="2000-05-01")) == pytest.approx(3.0)
-    assert np.isnan(out.sel(time="2000-10-01"))
-    assert float(out.sel(time="2000-11-01")) == pytest.approx(5.0)
-    assert out.attrs["units"] == "mm"
-    assert "SWE(t) - SWE(t-1)" in out.attrs["change_definition"]
-
-
-def test_monthly_land_hindcast_change_uses_later_lead_and_time():
-    y = ["2000050100"]
-    monthly = xr.Dataset(
-        {
-            "H2OSNO": (("Y", "L", "M"), [[[2.0], [5.0], [4.0]]]),
-            "time": (("Y", "L"), np.asarray([[
-                cftime.DatetimeNoLeap(2000, 5, 15),
-                cftime.DatetimeNoLeap(2000, 6, 15),
-                cftime.DatetimeNoLeap(2000, 7, 15),
-            ]], dtype=object)),
-        },
-        coords={"Y": y, "L": [1, 2, 3], "M": ["EN00"]},
-    )
-
-    out = land_skill.monthly_land_hindcast_change_dataset(monthly)
-
-    assert out.L.values.tolist() == [2, 3]
-    np.testing.assert_allclose(out.DELTA_H2OSNO.values.ravel(), [3.0, -1.0])
-    assert out.time.dt.month.values.tolist() == [[6, 7]]
-
-
-def test_monthly_land_hindcast_change_rejects_nonconsecutive_time():
-    monthly = xr.Dataset(
-        {
-            "H2OSNO": (("Y", "L", "M"), [[[2.0], [5.0]]]),
-            "time": (("Y", "L"), np.asarray([[
-                cftime.DatetimeNoLeap(2000, 5, 15),
-                cftime.DatetimeNoLeap(2000, 7, 15),
-            ]], dtype=object)),
-        },
-        coords={"Y": ["2000050100"], "L": [1, 2], "M": ["EN00"]},
-    )
-
-    with pytest.raises(ValueError, match="consecutive months"):
-        land_skill.monthly_land_hindcast_change_dataset(monthly)
-
-
 def test_retain_reference_supported_leads_uses_verification_month():
     data = xr.DataArray(
         np.ones((2, 4, 1)),

@@ -44,19 +44,6 @@ def leadtime_acc_dir(
     return join_below(root, source, "leadtime_acc", *parts)
 
 
-def leadtime_drift_dir(
-    source: str,
-    *parts: str | Path,
-    root: str | Path,
-) -> Path:
-    """Return a source-first lead-time drift diagnostic directory.
-
-    Examples are ``<root>/<source>/leadtime_drift`` and
-    ``<root>/<source>/leadtime_drift/month1_adjustment_maps``.
-    """
-    return join_below(root, source, "leadtime_drift", *parts)
-
-
 def initial_shock_dir(
     source: str,
     *parts: str | Path,
@@ -129,7 +116,6 @@ __all__ = [
     "normalize_root",
     "join_below",
     "leadtime_acc_dir",
-    "leadtime_drift_dir",
     "initial_shock_dir",
     "leadtime_telec_dir",
     "initial_conditions_dir",
