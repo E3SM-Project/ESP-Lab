@@ -215,19 +215,6 @@ def regrid_dataset(ds, dst, method='conservative', periodic=True,
     return regridder(src_ready)
 
 
-def regrid_dataarray(da, src_ds, dst, method='conservative', periodic=True,
-                     reuse_weights=False, filename=None):
-    """
-    Regrid a DataArray using source/destination grid definitions.
-    """
-    src_ready = prepare_latlon_ds(src_ds)
-    regridder = make_regridder(
-        src_ready, dst, method=method, periodic=periodic,
-        reuse_weights=reuse_weights, filename=filename
-    )
-    return regridder(da)
-
-
 def remap_then_regrid(ds, dsw, dst, varlst=None, method='conservative', periodic=True,
                       reuse_weights=False, filename=None):
     """
@@ -244,33 +231,3 @@ def remap_then_regrid(ds, dsw, dst, varlst=None, method='conservative', periodic
     return ds_out
 
 
-def auto_regrid(ds, dst, dsw=None, varlst=None, method='conservative', periodic=True,
-                reuse_weights=False, filename=None):
-    """
-    Flexible entry point:
-    - if ds has ncol, remap with dsw first, then regrid
-    - if ds already has structured lat/lon, regrid directly
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-        Source dataset.
-    dst : xr.Dataset
-        Destination structured lat-lon grid.
-    dsw : xr.Dataset or None
-        Sparse weight file required when ds has ncol.
-    """
-    if has_ncol(ds):
-        if dsw is None:
-            raise ValueError("Source dataset has ncol; dsw weight file is required.")
-        return remap_then_regrid(
-            ds, dsw, dst, varlst=varlst, method=method, periodic=periodic,
-            reuse_weights=reuse_weights, filename=filename
-        )
-    elif is_latlon_grid(ds):
-        return regrid_dataset(
-            ds, dst, method=method, periodic=periodic,
-            reuse_weights=reuse_weights, filename=filename
-        )
-    else:
-        raise ValueError("Unsupported grid: expected either ncol or structured 1D lat/lon.")
