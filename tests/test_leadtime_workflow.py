@@ -279,10 +279,18 @@ def notebook_run(tmp_path):
         settings["e3sm"].update(data_dir=str(tmp_path), nens=2, nlead=12)
         settings["smyle"].update(benchmark_dir=str(tmp_path), nens=3, nlead=12)
         settings["obs"].update(data_dir=str(tmp_path), chunks={})
-        settings["prepared_skill"].update(mode="require" if mode == "snapshot" else "auto", chunks={})
+        # Pin the notebook's user-facing recompute toggles off so the test does
+        # not depend on how the notebook was last configured for a real run.
+        settings["prepared_skill"].update(
+            mode="require" if mode == "snapshot" else "auto", force_recompute=False, chunks={}
+        )
         settings["cache"]["source_identity_mode"] = mode
-        settings["skill"].update(lead_start=2, lead_end=3, model_chunks={}, obs_chunks={})
-        settings["finite_ensemble_compare"].update(iteration_batch_size=2, model_chunks={}, obs_chunks={})
+        settings["skill"].update(
+            force_compute=False, lead_start=2, lead_end=3, model_chunks={}, obs_chunks={}
+        )
+        settings["finite_ensemble_compare"].update(
+            force_recompute=False, iteration_batch_size=2, model_chunks={}, obs_chunks={}
+        )
         settings["finite_ensemble_compare"]["modes"]["final"] = dict(init_months=[11], iterations=3, lead_start=2, lead_end=3)
         settings["diagnostics"]["run_drift_check"] = True
         ns["data_access"] = SimpleNamespace(
