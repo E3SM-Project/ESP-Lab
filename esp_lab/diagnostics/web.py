@@ -7,6 +7,41 @@ from typing import Union
 
 
 FIGURE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".webp"}
+# Lead-time ACC/RMSE fields, matched as whole underscore-separated tokens.
+LEAD_FIELDS = ("PRECT", "PSL", "TREFHT", "TS", "SST", "SSS", "OHC700", "H2OSNO", "H2OSOI", "TWS")
+# Lead-time RMSE buttons. 1b figures (``fig_{realm}_rmse_*``) are skill maps of
+# the detrended anomaly RMSE (nRMSE for land) and nRMSE differences; 1c figures
+# (``fig_rmse_compare_*``) show direct model-minus-observation RMSE, bias
+# included. Within a family the first matching pattern wins; an optional
+# ``init`` group adds "(May)" etc. The page draws buttons in
+# LEAD_RMSE_BUTTON_ORDER, May before November.
+LEAD_RMSE_1C_STEM = r"^fig_(?:rmse_compare|1c|2b)_|rmse_compare"
+LEAD_RMSE_BUTTON_RULES = {
+    "1b": (
+        (r"case_diff", "Case Difference"),
+        (r"diff", "nRMSE Difference"),
+        (r"conus", "RMSE Skill Map (CONUS)"),
+        (r"global|_rmse$", "RMSE Skill Map (Global)"),
+    ),
+    "1c": (
+        (r"diff(?:erence)?(?:_compare|_global)?(?:_init(?P<init>\d{2}))?", "RMSE Difference"),
+        (r"conus", "Total RMSE (CONUS)"),
+        (r"global", "Total RMSE (Global)"),
+    ),
+}
+LEAD_RMSE_BUTTON_ORDER = (
+    "RMSE Skill Map (Global)",
+    "RMSE Skill Map (CONUS)",
+    "nRMSE Difference",
+    "Case Difference",
+    "Total RMSE (Global)",
+    "Total RMSE (CONUS)",
+    "RMSE Difference",
+)
+# Teleconnection driver names that are not simply upper-cased; the Niño
+# indices match the SST Index section.
+TELECON_MODE_NAMES = {"nino12": "Niño1+2", "nino3": "Niño3", "nino34": "Niño3.4", "nino4": "Niño4"}
+MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 CLIMATE_MODES = {
     "AMO",
     "EA",
@@ -61,6 +96,8 @@ def _humanize_figure_name(filename: str) -> str:
         "psl": "PSL",
         "rmse": "RMSE",
         "sst": "SST",
+        "sss": "SSS",
+        "ohc700": "OHC700",
         "tc": "TC",
         "trefht": "TREFHT",
         "ts": "TS",
@@ -244,6 +281,22 @@ def _infer_workflow_group(filename: str, metric: str, mode: str) -> str:
 
 
 
+def _lead_rmse_button(stem: str) -> tuple[str, int] | None:
+    """Return the Lead-time RMSE button label and display rank for a figure stem."""
+    stem_lower = stem.lower()
+    family = "1c" if re.search(LEAD_RMSE_1C_STEM, stem_lower) else "1b"
+    for pattern, label in LEAD_RMSE_BUTTON_RULES[family]:
+        match = re.search(pattern, stem_lower)
+        if not match:
+            continue
+        init = match.groupdict().get("init")
+        rank = LEAD_RMSE_BUTTON_ORDER.index(label) * 100
+        if init and 1 <= int(init) <= 12:
+            return f"{label} ({MONTH_ABBR[int(init) - 1]})", rank + int(init)
+        return label, rank + 13
+    return None
+
+
 def _infer_shortname_and_type(
     rel_file: str, group: str, metric: str = "", mode: str = ""
 ) -> tuple[str, str]:
@@ -270,12 +323,14 @@ def _infer_shortname_and_type(
             btn_type = "Regional ACC / nRMSE"
 
     elif group == "LEAD_ACC":
-        for v in ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"]:
+        for v in LEAD_FIELDS:
             if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
                 break
         if "compare" in stem_lower:
             btn_type = "Model Compare"
+        elif "case_difference" in stem_lower:
+            btn_type = "Case Difference"
         elif "difference" in stem_lower or "diff" in stem_lower:
             btn_type = "Difference"
         elif "distribution" in stem_lower:
@@ -284,52 +339,18 @@ def _infer_shortname_and_type(
             btn_type = "Sigmask"
         elif "minus_reanalysis" in stem_lower:
             btn_type = "Minus Reanalysis"
+        elif stem_lower.endswith("_sig"):
+            btn_type = "ACC Skill Map (Significance)"
         else:
             btn_type = "ACC Skill Map"
 
     elif group == "LEAD_RMSE":
-        for v in ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"]:
+        for v in LEAD_FIELDS:
             if f"_{v.lower()}_" in f"_{stem_lower}_":
                 shortname = v
                 break
-        if "difference_compare" in stem_lower or "diff_compare" in stem_lower:
-            if "init05" in stem_lower:
-                btn_type = "Diff Compare (May)"
-            elif "init11" in stem_lower:
-                btn_type = "Diff Compare (Nov)"
-            else:
-                btn_type = "Diff Compare"
-        elif "difference_global" in stem_lower or "diff_global" in stem_lower:
-            if "init05" in stem_lower:
-                btn_type = "Diff Global (May)"
-            elif "init11" in stem_lower:
-                btn_type = "Diff Global (Nov)"
-            else:
-                btn_type = "Diff Global"
-        elif "diff" in stem_lower and "compare" in stem_lower and "init05" in stem_lower:
-            btn_type = "Diff Compare (May)"
-        elif "diff" in stem_lower and "compare" in stem_lower and "init11" in stem_lower:
-            btn_type = "Diff Compare (Nov)"
-        elif "diff" in stem_lower and "global" in stem_lower and "init05" in stem_lower:
-            btn_type = "Diff Global (May)"
-        elif "diff" in stem_lower and "global" in stem_lower and "init11" in stem_lower:
-            btn_type = "Diff Global (Nov)"
-        elif "diff" in stem_lower and "compare" in stem_lower:
-            btn_type = "Diff Compare"
-        elif "diff" in stem_lower and "global" in stem_lower:
-            btn_type = "Diff Global"
-        elif "difference" in stem_lower or "diff" in stem_lower:
-            btn_type = "Difference"
-        elif "compare" in stem_lower and "conus" in stem_lower:
-            btn_type = "Compare (CONUS)"
-        elif "compare" in stem_lower and "global" in stem_lower:
-            btn_type = "Compare (Global)"
-        elif "conus" in stem_lower:
-            btn_type = "CONUS RMSE"
-        elif "global" in stem_lower:
-            btn_type = "Global RMSE"
-        else:
-            btn_type = "RMSE Skill"
+        button = _lead_rmse_button(stem)
+        btn_type = button[0] if button else _humanize_figure_name(stem)
 
     elif group == "SST_INDEX":
         indices = [
@@ -398,8 +419,10 @@ def _infer_shortname_and_type(
             btn_type = "ELI Skill"
 
     elif group == "INITIAL_SHOCK":
-        for v in ["PRECT", "TREFHT", "TS"]:
-            if f"_{v.lower()}_" in f"_{stem_lower}_" or f"_{v.lower()}." in f"_{stem_lower}." or f"-{v.lower()}_" in f"-{stem_lower}_":
+        # "fig_shock_ts_<field>_..." is a time-series figure; its "ts" is not the TS field.
+        field_stem = re.sub(r"^fig_shock_ts_", "fig_shock_", stem_lower)
+        for v in ["PRECT", "TREFHT", "PSL", "TS"]:
+            if f"_{v.lower()}_" in f"_{field_stem}_" or f"_{v.lower()}." in f"_{field_stem}." or f"-{v.lower()}_" in f"-{field_stem}_":
                 shortname = v
                 break
         if stem_lower.startswith(("fig_shock_error_", "fig_6b_")) or "initial_shock_rmse_mae" in file_lower or "normalized_rmse" in stem_lower:
@@ -441,12 +464,7 @@ def _infer_shortname_and_type(
             mode_part = m.group(1)
             var_part = m.group(2)
             met_part = m.group(3).lower()
-            if mode_part.lower() == "nino34":
-                mode_name = "Niño3.4"
-            elif mode_part.lower() == "atlmdr":
-                mode_name = "ATLMDR"
-            else:
-                mode_name = mode_part.upper()
+            mode_name = TELECON_MODE_NAMES.get(mode_part.lower(), mode_part.upper())
             shortname = f"{mode_name} · {var_part.upper()}"
             if "corr" in met_part:
                 btn_type = "Correlation Map"
@@ -568,6 +586,11 @@ def discover_workflow_figures(
         )
         entry["shortname"] = shortname
         entry["btn_type"] = btn_type
+        button = _lead_rmse_button(path.stem) if entry["group"] == "LEAD_RMSE" else None
+        if button:
+            entry["btn_rank"] = button[1]
+        else:
+            entry.pop("btn_rank", None)
         figures.append(entry)
 
     manifest = {
@@ -2391,6 +2414,9 @@ def _build_html_template(manifest: dict) -> str:
     <!-- Embedded Figures Manifest Data -->
     <script>
         const manifest = __MANIFEST_JSON__;
+        const LEAD_FIELDS = __LEAD_FIELDS_JSON__;
+        const LEAD_RMSE_BUTTONS = __LEAD_RMSE_BUTTONS_JSON__;
+        const TELECON_MODE_NAMES = __TELECON_MODE_NAMES_JSON__;
     </script>
 
     <!-- Main Logic Script -->
@@ -2578,6 +2604,25 @@ def _build_html_template(manifest: dict) -> str:
             return "OTHER";
         }
 
+        // Case- and accent-insensitive name order, so "Niño3.4" sorts next to "NAO".
+        const byName = (a, b) => a.localeCompare(b, "en", { sensitivity: "base", numeric: true });
+
+        // Mirrors _lead_rmse_button in web.py, from the same injected rules.
+        function leadRmseButton(stemLower) {
+            const family = new RegExp(LEAD_RMSE_BUTTONS.stem1c).test(stemLower) ? "1c" : "1b";
+            for (const [pattern, label] of LEAD_RMSE_BUTTONS.rules[family]) {
+                const match = stemLower.match(new RegExp(pattern));
+                if (!match) continue;
+                const init = match.groups && match.groups.init ? parseInt(match.groups.init, 10) : 0;
+                const rank = LEAD_RMSE_BUTTONS.order.indexOf(label) * 100;
+                if (init >= 1 && init <= 12) {
+                    return { label: `${label} (${LEAD_RMSE_BUTTONS.months[init - 1]})`, rank: rank + init };
+                }
+                return { label, rank: rank + 13 };
+            }
+            return null;
+        }
+
         // Client-side fallback to infer shortname and button type
         function parseShortnameAndType(fig) {
             const group = fig.group || "";
@@ -2588,6 +2633,7 @@ def _build_html_template(manifest: dict) -> str:
 
             let shortname = fig.mode || "General";
             let btnType = "Diagnostic";
+            let btnRank;
 
             if (group === "REGIONAL_SKILL") {
                 const match = stemLower.match(/regional_acc_(?:nrmse_)?(atm|land|lnd|ocn)_([^_]+)_(.+)$/);
@@ -2602,41 +2648,24 @@ def _build_html_template(manifest: dict) -> str:
                         word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
                 }
             } else if (group === "LEAD_ACC") {
-                const vars = ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"];
-                for (const v of vars) {
-                    if (stemLower.includes(v.toLowerCase())) { shortname = v; break; }
+                for (const v of LEAD_FIELDS) {
+                    if (`_${stemLower}_`.includes(`_${v.toLowerCase()}_`)) { shortname = v; break; }
                 }
                 if (stemLower.includes("compare")) btnType = "Model Compare";
+                else if (stemLower.includes("case_difference")) btnType = "Case Difference";
                 else if (stemLower.includes("difference") || stemLower.includes("diff")) btnType = "Difference";
                 else if (stemLower.includes("distribution")) btnType = "Sample Period Sensitivity";
                 else if (stemLower.includes("sigmask")) btnType = "Sigmask";
                 else if (stemLower.includes("minus_reanalysis")) btnType = "Minus Reanalysis";
+                else if (stemLower.endsWith("_sig")) btnType = "ACC Skill Map (Significance)";
                 else btnType = "ACC Skill Map";
             } else if (group === "LEAD_RMSE") {
-                const vars = ["PRECT", "PSL", "TREFHT", "TS", "SST", "H2OSNO", "H2OSOI", "TWS"];
-                for (const v of vars) {
-                    if (stemLower.includes(v.toLowerCase())) { shortname = v; break; }
+                for (const v of LEAD_FIELDS) {
+                    if (`_${stemLower}_`.includes(`_${v.toLowerCase()}_`)) { shortname = v; break; }
                 }
-                if (stemLower.includes("difference_compare") || stemLower.includes("diff_compare")) {
-                    if (stemLower.includes("init05")) btnType = "Diff Compare (May)";
-                    else if (stemLower.includes("init11")) btnType = "Diff Compare (Nov)";
-                    else btnType = "Diff Compare";
-                } else if (stemLower.includes("difference_global") || stemLower.includes("diff_global")) {
-                    if (stemLower.includes("init05")) btnType = "Diff Global (May)";
-                    else if (stemLower.includes("init11")) btnType = "Diff Global (Nov)";
-                    else btnType = "Diff Global";
-                } else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init05")) btnType = "Diff Compare (May)";
-                else if (stemLower.includes("diff") && stemLower.includes("compare") && stemLower.includes("init11")) btnType = "Diff Compare (Nov)";
-                else if (stemLower.includes("diff") && stemLower.includes("global") && stemLower.includes("init05")) btnType = "Diff Global (May)";
-                else if (stemLower.includes("diff") && stemLower.includes("global") && stemLower.includes("init11")) btnType = "Diff Global (Nov)";
-                else if (stemLower.includes("diff") && stemLower.includes("compare")) btnType = "Diff Compare";
-                else if (stemLower.includes("diff") && stemLower.includes("global")) btnType = "Diff Global";
-                else if (stemLower.includes("difference") || stemLower.includes("diff")) btnType = "Difference";
-                else if (stemLower.includes("compare") && stemLower.includes("conus")) btnType = "Compare (CONUS)";
-                else if (stemLower.includes("compare") && stemLower.includes("global")) btnType = "Compare (Global)";
-                else if (stemLower.includes("conus")) btnType = "CONUS RMSE";
-                else if (stemLower.includes("global")) btnType = "Global RMSE";
-                else btnType = "RMSE Skill";
+                const button = leadRmseButton(stemLower);
+                btnType = button ? button.label : stem;
+                if (button) btnRank = button.rank;
             } else if (group === "SST_INDEX") {
                 const indices = [
                     ["nino3_4", "Niño3.4"], ["nino34", "Niño3.4"], ["nino12", "Niño1+2"],
@@ -2673,8 +2702,9 @@ def _build_html_template(manifest: dict) -> str:
                 else if (stemLower.includes("dual_axis_jja")) btnType = "Niño3.4 vs ELI (JJA)";
                 else btnType = "ELI Skill";
             } else if (group === "INITIAL_SHOCK") {
-                for (const v of ["PRECT", "TREFHT", "TS"]) {
-                    if (stemLower.includes(`_${v.toLowerCase()}_`) || stemLower.includes(`_${v.toLowerCase()}.`) || stemLower.includes(`-${v.toLowerCase()}_`)) {
+                const fieldStem = stemLower.replace(/^fig_shock_ts_/, "fig_shock_");
+                for (const v of ["PRECT", "TREFHT", "PSL", "TS"]) {
+                    if (fieldStem.includes(`_${v.toLowerCase()}_`) || fieldStem.includes(`_${v.toLowerCase()}.`) || fieldStem.includes(`-${v.toLowerCase()}_`)) {
                         shortname = v;
                         break;
                     }
@@ -2701,9 +2731,7 @@ def _build_html_template(manifest: dict) -> str:
                     let modePart = match[1];
                     const varPart = match[2].toUpperCase();
                     const metPart = match[3];
-                    if (modePart.toLowerCase() === "nino34") modePart = "Niño3.4";
-                    else if (modePart.toLowerCase() === "atlmdr") modePart = "ATLMDR";
-                    else modePart = modePart.toUpperCase();
+                    modePart = TELECON_MODE_NAMES[modePart.toLowerCase()] || modePart.toUpperCase();
                     shortname = `${modePart} · ${varPart}`;
                     if (metPart.includes("corr")) btnType = "Correlation Map";
                     else if (metPart.includes("summary")) btnType = "Summary";
@@ -2726,7 +2754,7 @@ def _build_html_template(manifest: dict) -> str:
                     btnType = "TC Diagnostic";
                 }
             }
-            return { shortname, btn_type: btnType };
+            return { shortname, btn_type: btnType, btn_rank: btnRank };
         }
 
         // Initialize Web Application
@@ -2742,6 +2770,7 @@ def _build_html_template(manifest: dict) -> str:
                 if (!fig.shortname || !fig.btn_type) {
                     const parsed = parseShortnameAndType(fig);
                     fig.shortname = fig.shortname || parsed.shortname;
+                    if (!fig.btn_type && parsed.btn_rank !== undefined) fig.btn_rank = parsed.btn_rank;
                     fig.btn_type = fig.btn_type || parsed.btn_type;
                 }
             });
@@ -3040,7 +3069,7 @@ def _build_html_template(manifest: dict) -> str:
                         allPill.onclick = () => setTeleconMode("ALL");
                         filterBar.appendChild(allPill);
 
-                        Array.from(driverModes).sort().forEach(dm => {
+                        Array.from(driverModes).sort(byName).forEach(dm => {
                             const dmCount = groupFigs.filter(f => (f.shortname || "").startsWith(dm + " · ")).length;
                             const pill = document.createElement("button");
                             pill.className = `mode-filter-pill ${activeTeleconMode === dm ? "active" : ""}`;
@@ -3069,12 +3098,22 @@ def _build_html_template(manifest: dict) -> str:
                 // the same canonical button types. For other groups: use groupFigs.
                 const allBtnTypes = [];
                 const seenBtnTypes = new Set();
+                const btnRanks = {};
                 (fullGroupFigs || groupFigs).forEach(fig => {
                     const bt = fig.btn_type || "Diagnostic";
                     if (!seenBtnTypes.has(bt)) {
                         seenBtnTypes.add(bt);
                         allBtnTypes.push(bt);
                     }
+                    if (typeof fig.btn_rank === "number") btnRanks[bt] = fig.btn_rank;
+                });
+                // Ranked buttons (Lead-time RMSE) take their fixed order;
+                // the rest keep first-seen order after them.
+                const firstSeen = new Map(allBtnTypes.map((bt, i) => [bt, i]));
+                allBtnTypes.sort((a, b) => {
+                    const ra = btnRanks[a] ?? Infinity;
+                    const rb = btnRanks[b] ?? Infinity;
+                    return ra !== rb ? ra - rb : firstSeen.get(a) - firstSeen.get(b);
                 });
 
                 // For TELECONNECTIONS: also build the global union of variable suffixes
@@ -3093,9 +3132,9 @@ def _build_html_template(manifest: dict) -> str:
                         }
                     });
                     // Construct the canonical shortname list for the selected mode
-                    shortnameList = allSuffixes.map(s => activeTeleconMode + " · " + s).sort();
+                    shortnameList = allSuffixes.map(s => activeTeleconMode + " · " + s).sort(byName);
                 } else {
-                    shortnameList = Object.keys(byShortname).sort();
+                    shortnameList = Object.keys(byShortname).sort(byName);
                 }
 
                 const rowsList = document.createElement("div");
@@ -3684,4 +3723,18 @@ def _build_html_template(manifest: dict) -> str:
 """
 
     # Embed manifest JSON string into placeholder
-    return template.replace("__MANIFEST_JSON__", manifest_json_str)
+    lead_rmse_buttons = {
+        "stem1c": LEAD_RMSE_1C_STEM,
+        "rules": {
+            family: [[pattern.replace("(?P<", "(?<"), label] for pattern, label in rules]
+            for family, rules in LEAD_RMSE_BUTTON_RULES.items()
+        },
+        "order": list(LEAD_RMSE_BUTTON_ORDER),
+        "months": list(MONTH_ABBR),
+    }
+    return (
+        template.replace("__MANIFEST_JSON__", manifest_json_str)
+        .replace("__LEAD_FIELDS_JSON__", json.dumps(list(LEAD_FIELDS)))
+        .replace("__LEAD_RMSE_BUTTONS_JSON__", json.dumps(lead_rmse_buttons))
+        .replace("__TELECON_MODE_NAMES_JSON__", json.dumps(TELECON_MODE_NAMES, ensure_ascii=False))
+    )
