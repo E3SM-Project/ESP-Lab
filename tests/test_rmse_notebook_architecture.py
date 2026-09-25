@@ -141,7 +141,7 @@ def test_rmse_notebook_code_cells_compile():
             compile(transformed, f"{path}:cell-{index}", "exec")
 
 
-def test_land_direct_rmse_scores_raw_values_and_rejects_anomaly_reference(tmp_path):
+def test_land_direct_rmse_scores_raw_values_and_skips_anomaly_reference(tmp_path, capsys):
     import numpy as np
     import pandas as pd
     import pytest
@@ -172,7 +172,7 @@ def test_land_direct_rmse_scores_raw_values_and_rejects_anomaly_reference(tmp_pa
     )
     written = []
     ns = {
-        'reference_is_anomaly': True,
+        'DIRECT_RMSE_UNDEFINED': True, 'SKIP_MESSAGE': 'direct RMSE is not defined',
         'GRID_TAG': '5x5', 'E3SM_CASES': {'case': {'cache_tag': 'case', 'case_prefix': 'case'}},
         'RUN': {'init_months': [5], 'ensemble_members': [0, 1], 'force_compute': False},
         'forecast_by_case_month': {'case': {5: model}},
@@ -187,10 +187,11 @@ def test_land_direct_rmse_scores_raw_values_and_rejects_anomaly_reference(tmp_pa
         'atomic_to_netcdf': lambda ds, path, **kwargs: written.append(ds),
         'netcdf_write_options': {},
     }
-    with pytest.raises(ValueError, match='absolute-value land reference'):
-        exec(compile(source, '<land-direct-rmse-cell>', 'exec'), ns)
-    assert not written
-    ns['reference_is_anomaly'] = False
+    # Anomaly-only reference: the cell skips cleanly instead of failing.
+    exec(compile(source, '<land-direct-rmse-cell>', 'exec'), ns)
+    assert 'direct RMSE is not defined' in capsys.readouterr().out
+    assert not written and 'direct_rmse_by_case_month' not in ns
+    ns['DIRECT_RMSE_UNDEFINED'] = False
     exec(compile(source, '<land-direct-rmse-cell>', 'exec'), ns)
     result = ns['direct_rmse_by_case_month']['case'][5]
     assert result.rmse.item() == pytest.approx(np.sqrt(10))
