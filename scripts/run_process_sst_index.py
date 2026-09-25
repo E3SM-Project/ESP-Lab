@@ -29,6 +29,7 @@ import dask
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from esp_lab import data_access_e3sm as data_access
+from esp_lab import env_paths
 from esp_lab import data_access_obs as obs_access
 from esp_lab import data_access_cesm_smyle as smyle_access
 from esp_lab import stats
@@ -62,7 +63,7 @@ from esp_lab.diagnostics.native_eli import (
 
 LOG = logging.getLogger(__name__)
 SST_INDEX_OUTPUT_VERSION = 2
-S2D_DIAG_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag")
+S2D_DIAG_ROOT = env_paths.s2d_diag_root()
 E3SMLE_DIAG_DIR = S2D_DIAG_ROOT
 CESM_SMYLE_DIAG_DIR = S2D_DIAG_ROOT / "CESM-SMYLE"
 OBS_DIAG_DIR = S2D_DIAG_ROOT / "observations"

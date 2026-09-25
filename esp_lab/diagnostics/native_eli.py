@@ -445,11 +445,13 @@ def process_native_eli_case(
 
         cases_for_month = [f"{case_prefix}_{year}{init_month:02d}0100" for year in lead_years]
         n_workers = max(1, min(int(workers), nens))
+        missing_case_dirs = []
 
         for yi, (year, case) in enumerate(zip(lead_years, cases_for_month)):
             case_dir = data_dir / case
             if not case_dir.is_dir():
                 LOG.warning("Case directory not found: %s", case_dir)
+                missing_case_dirs.append(case_dir)
                 continue
 
             tasks = [
@@ -490,6 +492,14 @@ def process_native_eli_case(
             finally:
                 if pool is not None:
                     pool.shutdown(wait=True)
+
+        if cases_for_month and len(missing_case_dirs) == len(cases_for_month):
+            # Never replace a cache with an all-missing file (e.g. a wrong
+            # case prefix or data directory that finds no case directories).
+            raise RuntimeError(
+                f"No case directories found for {case_prefix} init {init_month:02d} "
+                f"under {data_dir}; refusing to write an empty native ELI cache."
+            )
 
         attrs_common = {
             **expected_common,

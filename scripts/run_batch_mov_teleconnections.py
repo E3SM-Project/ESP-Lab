@@ -51,6 +51,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from esp_lab.leadtime_plot_utils import seasonal_label
+from esp_lab import env_paths
 from esp_lab.utils import colormap_utils as mycolors
 from workflows.diagnostics import mov_teleconnections as mov_telecon
 
@@ -62,9 +63,9 @@ ALL_VARIABLES = [
     "TREFHT", "TS", "PRECT", "PSL", "SST", "H2OSNO", "H2OSOI",
 ]
 
-DEFAULT_DIAG_ROOT = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag"
-DEFAULT_OUTPUT_DIR = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/multimodel/leadtime_telec"
-DEFAULT_FIGURE_DIR = "/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag/teleconnections"
+DEFAULT_DIAG_ROOT = str(env_paths.s2d_diag_root())
+DEFAULT_OUTPUT_DIR = str(env_paths.s2d_diag_root() / "multimodel" / "leadtime_telec")
+DEFAULT_FIGURE_DIR = str(env_paths.figure_root() / "teleconnections")
 
 
 def initialization_label(month: int) -> str:

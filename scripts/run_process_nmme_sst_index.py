@@ -23,6 +23,7 @@ import numpy as np
 import xarray as xr
 
 from esp_lab import data_access_nmme as nmme_access
+from esp_lab import env_paths
 from esp_lab import stats
 from esp_lab.diagnostics import (
     DEFAULT_CLIMATOLOGY_END_YEAR,
@@ -34,7 +35,7 @@ from esp_lab.utils.filename_utils import source_init_prefix
 
 
 DEFAULT_NMME_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/NMME/data_hindcast_by_member")
-S2D_DIAG_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag")
+S2D_DIAG_ROOT = env_paths.s2d_diag_root()
 NMME_DIAG_DIR = S2D_DIAG_ROOT / "NMME"
 NMME_FIXED_DIR = NMME_DIAG_DIR / "fixed"
 DEFAULT_OUTDIR = NMME_DIAG_DIR

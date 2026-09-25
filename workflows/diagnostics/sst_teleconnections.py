@@ -14,11 +14,12 @@ import xarray as xr
 from scipy import stats as scipy_stats
 
 from esp_lab.leadtime_prepared_cache import grid_token
+from esp_lab import env_paths
 from esp_lab.utils.filename_utils import resolve_year_span_path, sst_index_filename
 
-DEFAULT_DIAG_ROOT = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag")
-DEFAULT_OUTPUT_DIR = Path("/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/multimodel/leadtime_telec")
-DEFAULT_FIGURE_DIR = Path("/global/cfs/cdirs/e3sm/www/zhan391/e3sm-s2d_diag/teleconnections")
+DEFAULT_DIAG_ROOT = env_paths.s2d_diag_root()
+DEFAULT_OUTPUT_DIR = DEFAULT_DIAG_ROOT / "multimodel" / "leadtime_telec"
+DEFAULT_FIGURE_DIR = env_paths.figure_root() / "teleconnections"
 DEFAULT_DOWNSTREAM_TARGET_GRIDS = {
     "atmosphere": "latlon_1.0x1.0_periodic-True",
     "land": "1x1deg_cell_centered",
