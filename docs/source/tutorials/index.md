@@ -6,37 +6,39 @@ skill evaluation, modes-of-variability analysis, and interactive diagnostics vie
 
 ## Active Notebook Suite
 
-The refactored `1a_*`, `1b_*`, and `1c_*` families separate ACC, anomaly-based RMSE maps, and direct raw-value RMSE comparisons, respectively, with `atm`, `lnd`, and `ocn` variants. Atmosphere and ocean workflows can compare against CESM-SMYLE; land workflows compare E3SM cases against a configured land reference. Land `1b` reuses or computes the same normalized-RMSE skill caches as land `1a`. Land `1c` requires an absolute-value reference: the default C3S TWSA anomaly product is suitable for `1a`/`1b`, but cannot be compared directly with raw model storage.
+The refactored `1a_*`, `1b_*`, and `1c_*` families separate ACC, anomaly-based RMSE maps, and direct raw-value RMSE comparisons, respectively, with `atm`, `lnd`, and `ocn` variants. Atmosphere and ocean workflows can compare against CESM-SMYLE; land workflows compare E3SM cases against a configured land reference. Land `1b` reuses or computes the same normalized-RMSE skill caches as land `1a`. Land `1c` requires an absolute-value reference: the C3S TWSA anomaly product used for `TWS` is suitable for `1a`/`1b`, so for `TWS` `1c` prepares its inputs but skips the direct-RMSE cells with a message.
+
+Fields without a CESM-SMYLE benchmark (ocean `SSS` and `OHC700`, and all land fields) show the E3SM cases only. Every `1a` and `1b` notebook also draws a **case-difference** figure: each E3SM experiment minus a selected control case (`ACC_DIFFERENCE_CONTROL` / `RMSE_DIFFERENCE_CONTROL`, default `E3SM-Reanalysis`).
 
 | Notebook | Focus Area | Description |
 |---|---|---|
-| `0_run_cesm_smyle_benchmark.ipynb` | Preprocessing | Distributed Dask preprocessing for CESM-SMYLE benchmark data |
-| `1a_atm_leadtime_acc_skill_map.ipynb` | Atmospheric Skill | Atmospheric lead-time ACC skill maps across seasons and leads |
-| `1a_lnd_leadtime_acc_skill_map.ipynb` | Land Skill | Land surface lead-time ACC skill maps |
-| `1a_ocn_leadtime_acc_skill_map.ipynb` | Ocean Skill | Ocean-realm lead-time ACC skill maps (starting with SST) |
-| `1b_atm_leadtime_rmse_skill_map.ipynb` | Error Diagnostics | Lead-time RMSE spatial maps (atmosphere) |
-| `1b_ocn_leadtime_rmse_skill_map.ipynb` | Error Diagnostics | Lead-time RMSE spatial maps (ocean, starting with SST) |
-| `1b_lnd_leadtime_rmse_skill_map.ipynb` | Error Diagnostics | Lead-time RMSE spatial maps (land: H2OSNO, H2OSOI, TWS) |
-| `1c_atm_leadtime_rmse_compare.ipynb` | Multi-Model | Lead-time RMSE comparison and model difference metrics (atmosphere) |
-| `1c_ocn_leadtime_rmse_compare.ipynb` | Multi-Model | Lead-time RMSE comparison and model difference metrics (ocean, starting with SST) |
-| `1c_lnd_leadtime_rmse_compare.ipynb` | Multi-Model | Direct-RMSE comparison between E3SM land cases (absolute-value reference required; no CESM-SMYLE land benchmark) |
-| `2a_regional_acc_skill_ts.ipynb` | Regional Skill | Cache-first global and regional ACC-versus-lead summaries from 1a ACC products |
+| `0_run_cesm_smyle_benchmark.ipynb` | Benchmark Data | Dask-distributed preprocessing of CESM-SMYLE hindcasts |
+| `1a_atm_leadtime_acc_skill_map.ipynb` | Atmospheric Skill | Lead-time anomaly correlation coefficient (ACC) maps |
+| `1a_lnd_leadtime_acc_skill_map.ipynb` | Land Skill | Land lead-time ACC maps (H2OSNO, H2OSOI, TWS) |
+| `1a_ocn_leadtime_acc_skill_map.ipynb` | Ocean Skill | Ocean lead-time ACC maps (SST, SSS, OHC700) |
+| `1b_atm_leadtime_rmse_skill_map.ipynb` | Error Maps | Anomaly RMSE skill maps (atmosphere: TREFHT, TS, PRECT, PSL) |
+| `1b_ocn_leadtime_rmse_skill_map.ipynb` | Error Maps | Anomaly RMSE skill maps (ocean: SST, SSS, OHC700) |
+| `1b_lnd_leadtime_rmse_skill_map.ipynb` | Error Maps | Normalized RMSE skill maps (land: H2OSNO, H2OSOI, TWS) |
+| `1c_atm_leadtime_rmse_compare.ipynb` | Model Comparison | Direct (bias-inclusive) RMSE and significance-tested model differences (atmosphere) |
+| `1c_ocn_leadtime_rmse_compare.ipynb` | Model Comparison | Direct (bias-inclusive) RMSE and significance-tested model differences (ocean: SST, SSS, OHC700) |
+| `1c_lnd_leadtime_rmse_compare.ipynb` | Model Comparison | Direct-RMSE comparison between E3SM land cases (absolute-value reference required; skipped for TWS) |
+| `2a_regional_acc_skill_ts.ipynb` | Regional Skill | Global and regional ACC and nRMSE versus lead (seasonal from 1a, plus monthly all-start curves) for all atmosphere, ocean, and land fields |
 | `3a_sst_skill_ts.ipynb` | Ocean Skill | SST index skill time series (E3SM, CESM-SMYLE, NMME) |
-| `3b_sst_telecon.ipynb` | Teleconnections | SST teleconnection diagnostics and ENSO patterns |
-| `4a_mov_analysis.ipynb` | Modes of Variability | Modes-of-variability EOF projection and index calculations |
-| `4b_mov_telecon.ipynb` | Teleconnections | Modes-of-variability teleconnections with precipitation/temp |
+| `3b_sst_telecon.ipynb` | Teleconnections | Sea surface temperature teleconnection diagnostics |
+| `4a_mov_analysis.ipynb` | Modes of Variability | EOF projection and index calculation (PDO, AMO, NAO) |
+| `4b_mov_telecon.ipynb` | Teleconnections | Modes of variability climate teleconnection patterns |
 | `5a_eli_skill_ts.ipynb` | Tropical Pacific | Equatorial Longitude Index (ELI) skill time series |
-| `5b_eli_diagnostics.ipynb` | Tropical Pacific | Native and regridded ELI diagnostics |
-| `5c_eli_telecon.ipynb` | Teleconnections | ELI teleconnection patterns |
-| `6a_shock_ts.ipynb` | Drift & Shock | Initialization shock and lead-dependent drift time series |
-| `6b_shock_index.ipynb` | Drift & Shock | Initialization shock metrics and multi-model indices |
+| `5b_eli_diagnostics.ipynb` | ELI Diagnostics | Native & regridded ELI diagnostics across starts |
+| `5c_eli_telecon.ipynb` | Teleconnections | ELI precipitation and temperature teleconnections |
+| `6a_shock_ts.ipynb` | Initialization Shock | Lead-dependent drift and initialization shock time series |
+| `6b_shock_index.ipynb` | Shock Indices | Initialization shock metrics and multi-model indices |
 | `7a_tc_method_analysis.ipynb` | Tropical Cyclones | TempestExtremes tracking method and parameter comparison |
 | `7b_tc_leadtime_analysis.ipynb` | Tropical Cyclones | TC lead-time density, IBTrACS comparison, and ENSO regression |
-| `8_run_viewer_webpage.ipynb` | Interactive Web | Generate interactive diagnostics viewer webpage |
+| `8_run_viewer_webpage.ipynb` | Gallery Webpage | Interactive HTML diagnostics viewer generator |
 
 ## Interactive Web Portal
 
-All figures generated by this suite can be explored on the [Live E3SM-S2D Diagnostics Portal](https://portal.nersc.gov/cfs/e3sm/zhan391/e3sm-s2d_diag/index.html), featuring quick navigation buttons, driver mode filtering, and pop-out image modals.
+All figures generated by this suite can be explored on the [Live E3SM-S2D Diagnostics Portal](https://portal.nersc.gov/cfs/e3sm/zhan391/e3sm-s2d_diag/) (see the [Diagnostics Gallery](../gallery.md) for an overview and example figures), featuring a one-page button matrix (one row per field or index, one button per figure type), teleconnection driver-mode filtering, and pop-out image modals.
 
 ## How to Run
 
@@ -47,4 +49,6 @@ All figures generated by this suite can be explored on the [Live E3SM-S2D Diagno
    ```
 2. Activate or create the conda environment (see [Installation](../how-to/install-esp-lab.md)).
 3. Launch JupyterLab or JupyterHub and navigate to the `jupyter/` directory.
-4. Run notebooks in order (0 → 8), configuring paths in the configuration cell at the top of each notebook.
+4. Run notebooks in order (0 → 8). Choose the field, index, or mode in the configuration cell at the top of each notebook; data and output roots come from `esp_lab.env_paths` (override with the `ESP_LAB_*` environment variables).
+5. Each notebook's run-control block (`derivation_mode = "auto" | "rebuild" | "require"` and `recompute_*` flags) decides whether caches are reused or recomputed.
+6. Run `8_run_viewer_webpage.ipynb` last to rebuild the web gallery.

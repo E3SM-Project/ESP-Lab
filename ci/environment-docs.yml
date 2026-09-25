@@ -7,11 +7,9 @@ dependencies:
   - cf-units
   - cf_xarray
   - cftime
-  - cmocean
   - dask
   - dask-jobqueue
   - distributed
-  - eofs
   - esmpy
   - furo
   - jupyterlab
@@ -28,7 +26,6 @@ dependencies:
   - sphinx-copybutton
   - sphinx-inline-tabs
   - xarray>=2023.1
-  - xcdat
   - xesmf
   - xskillscore
   - pip:
