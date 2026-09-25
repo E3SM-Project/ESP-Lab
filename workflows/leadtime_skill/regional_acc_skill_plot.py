@@ -84,9 +84,18 @@ def plot_regional_acc_skill_template(
             acc_ax.plot(display_leads, values.corr, linewidth=line_width, markersize=marker_size, label=case, **style)
             rmse_ax.plot(display_leads, values.rmse, linewidth=line_width, markersize=marker_size, label=case, **style)
         available = next(iter(datasets.values())).sel(region=region).sel(L=valid_leads)
-        leads = available.L.values + current_lead_offset
+        stored_leads = available.L.values
+        leads = stored_leads + current_lead_offset
         seasons = () if season_labels is None or month is None else season_labels.get(month, ())
-        labels = [f"{int(lead)}:{seasons[i]}" if i < len(seasons) else str(int(lead)) for i, lead in enumerate(leads)]
+        # Label each lead by its position in the full stored lead list (seasonal
+        # caches store L=3, 6, ...; the first maps to seasons[0]), so leads
+        # dropped for lack of verifiable data do not shift the labels.
+        all_leads = [int(value) for value in valid.L.values]
+        labels = [
+            f"{int(lead)}:{seasons[all_leads.index(int(stored))]}"
+            if all_leads.index(int(stored)) < len(seasons) else str(int(lead))
+            for lead, stored in zip(leads, stored_leads)
+        ]
         for axis, ylabel, ylim, reference in (
             (acc_ax, "ACC", acc_ylim, 0.0),
             (rmse_ax, "nRMSE", nrmse_ylim, 1.0),
@@ -95,6 +104,11 @@ def plot_regional_acc_skill_template(
             if monthly:
                 axis.set_xlim(monthly_xlim)
                 axis.set_xticks(np.arange(1, monthly_xlim[1], monthly_tick_step))
+            elif leads.size == 0:
+                # e.g. snow water equivalent over the tropics: nothing to verify.
+                axis.set_xticks([])
+                axis.text(0.5, 0.5, "no verifiable data", transform=axis.transAxes,
+                          ha="center", va="center", fontsize=label_fontsize, color="0.4")
             else:
                 axis.set_xticks(leads)
                 axis.set_xticklabels(labels)
