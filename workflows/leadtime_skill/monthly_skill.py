@@ -10,7 +10,7 @@ import xarray as xr
 
 from esp_lab import data_access_e3sm, data_access_obs, land_input_cache, land_skill, stats
 from esp_lab.leadtime_prepared_cache import cache_status
-from esp_lab.leadtime_workflow import compute_monthly_skill_lead_range
+from esp_lab.leadtime_workflow import compute_monthly_skill_lead_range, select_lead_range
 from esp_lab.paths import leadtime_acc_dir
 from esp_lab.utils import regrid_utils as regrid
 from esp_lab.utils.netcdf_utils import atomic_to_netcdf, load_netcdf
@@ -53,11 +53,29 @@ def produce_monthly_skill_cache(
         return load_netcdf(path)
 
     start, end = map(int, climatology_years)
+    model, time = select_lead_range(
+        model_anomaly, valid_time, lead_start,
+        int(model_anomaly.sizes["L"]) if lead_end is None else lead_end,
+    )
+    # Leads whose target calendar month never occurs in the reference (e.g.
+    # C3S SWE has no June-September fields) cannot be verified; keep them in
+    # the L=1..24 contract as missing values instead of failing the product.
+    reference_months = set(np.unique(observations["time"].dt.month.values).tolist())
+    lead_months = time.dt.month.max("Y").values
+    keep = [i for i, month in enumerate(lead_months)
+            if np.isfinite(month) and int(month) in reference_months]
+    if not keep:
+        raise ValueError("No monthly lead has a target month present in the reference data.")
     skill = compute_monthly_skill_lead_range(
-        model_anomaly, valid_time, observations, str(start), str(end),
-        lead_start=lead_start, lead_end=lead_end, resamp=0,
+        model.isel(L=keep), time.isel(L=keep), observations, str(start), str(end),
+        lead_start=1, lead_end=len(keep), resamp=0,
         detrend=detrend, is_anomaly=observations_are_anomalies,
-    ).assign_attrs(attrs).compute()
+    )
+    if len(keep) < model.sizes["L"]:
+        skipped = [int(v) for i, v in enumerate(model["L"].values) if i not in keep]
+        skill = skill.reindex(L=model["L"].values)
+        attrs = {**attrs, "unverifiable_leads": ",".join(map(str, skipped))}
+    skill = skill.assign_attrs(attrs).compute()
     if not {"L", "lat", "lon"}.issubset(skill["corr"].dims):
         raise ValueError("Monthly skill must contain corr(L, lat, lon).")
     atomic_to_netcdf(skill, path, **dict(write_options or {}))
@@ -130,7 +148,12 @@ def build_atmospheric_monthly_skill_caches(
 
     Every archive and variable choice is supplied by the calling driver.  The
     function therefore contains reusable processing only and has no notebook
-    dependency.
+    dependency.  Optional ``variable_config`` keys:
+
+    * ``obs_path_pattern``: read the reference from an explicit file or glob
+      (e.g. EN4 yearly files) instead of ``obs_product`` under the obs root.
+    * ``pre_regrid_convert``: callable applied to the model field on its
+      archive grid before regridding (e.g. OHC700 J -> J m-2).
     """
     cfg = dict(variable_config)
     required = {
@@ -147,12 +170,20 @@ def build_atmospheric_monthly_skill_caches(
 
     years = np.arange(int(initialization_year_start), int(year_end) + 1)
     target = regrid.make_latlon_grid(5.0, 5.0)
-    obs = data_access_obs.get_monthly_data(
-        obs_dir=str(observation_root), product=str(cfg["obs_product"]), field=field,
-        field_map={field: str(cfg["obs_variable"])},
+    obs_window = dict(
         start_year=str(cfg["obs_year_start"]), end_year=str(cfg["obs_year_end"]),
         chunks={"time": 24, "lat": 90, "lon": 180},
     )
+    if cfg.get("obs_path_pattern"):
+        obs = data_access_obs.get_monthly_data_from_pattern(
+            str(cfg["obs_path_pattern"]), str(cfg["obs_variable"]), **obs_window
+        )
+    else:
+        obs = data_access_obs.get_monthly_data(
+            obs_dir=str(observation_root), product=str(cfg["obs_product"]), field=field,
+            field_map={field: str(cfg["obs_variable"])}, **obs_window,
+        )
+    pre_regrid_convert = cfg.get("pre_regrid_convert") or (lambda data: data)
     try:
         obs_name = str(cfg["obs_variable"])
         if obs_name not in obs:
@@ -193,7 +224,7 @@ def build_atmospheric_monthly_skill_caches(
                 )
                 try:
                     model_name = str(cfg.get("model_variable", field))
-                    model = monthly[model_name].rename(field)
+                    model = pre_regrid_convert(monthly[model_name]).rename(field)
                     model = cfg["model_convert"](_on_grid(model, target, field=field))
                     anomaly, _ = stats.remove_drift(
                         model, monthly["time"], *map(int, climatology_years)

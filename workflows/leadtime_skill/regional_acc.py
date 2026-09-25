@@ -83,19 +83,31 @@ def regional_skill_metrics(
     metrics: Sequence[str] = ("corr", "rmse"),
     area: xr.DataArray | None = None,
     land_mask: xr.DataArray | None = None,
+    min_obs_std_fraction: float = 0.01,
 ) -> xr.Dataset:
     """Area-weighted regional summaries of gridded ACC and nRMSE fields.
 
-    In 1a ACC cache products, ``rmse`` is grid-cell normalized RMSE (nRMSE).
+    In 1a ACC cache products, ``rmse`` is grid-cell normalized RMSE (nRMSE),
+    i.e. RMSE divided by the observed standard deviation ``sig_obs``.  Where
+    the observations barely vary (e.g. HadISST SST held at the freezing point
+    under sea ice) that ratio explodes and swamps any area mean, so nRMSE
+    cells with ``sig_obs`` below ``min_obs_std_fraction`` times the field's
+    median ``sig_obs`` are left out.  Set it to 0 to keep every cell.
+
     The output remains a spatial summary of gridded metrics rather than a
     score recomputed from regionally averaged anomaly time series.
     """
     missing = set(metrics).difference(skill.data_vars)
     if missing:
         raise KeyError(f"Skill dataset is missing requested metrics: {sorted(missing)}")
+    fields = {name: skill[name] for name in metrics}
+    if "rmse" in fields and "sig_obs" in skill.data_vars and min_obs_std_fraction > 0:
+        sig_obs = skill["sig_obs"]
+        floor = float(min_obs_std_fraction) * float(sig_obs.median(skipna=True))
+        fields["rmse"] = fields["rmse"].where(sig_obs > floor)
     return xr.Dataset({
-        name: regional_acc(skill[name], regions, area=area, land_mask=land_mask)
-        for name in metrics
+        name: regional_acc(data, regions, area=area, land_mask=land_mask)
+        for name, data in fields.items()
     })
 
 
