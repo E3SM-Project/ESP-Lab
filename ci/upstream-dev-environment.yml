@@ -7,11 +7,9 @@ dependencies:
   - cf-units
   - cf_xarray
   - cftime
-  - cmocean
   - dask
   - dask-jobqueue
   - distributed
-  - eofs
   - esmpy
   - matplotlib
   - netcdf4
@@ -26,6 +24,5 @@ dependencies:
   - regionmask
   - scipy
   - xarray>=2023.1
-  - xcdat
   - xesmf
   - xskillscore>=0.0.24

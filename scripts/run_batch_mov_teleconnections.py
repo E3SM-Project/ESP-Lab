@@ -51,6 +51,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from esp_lab.leadtime_plot_utils import seasonal_label
+from esp_lab import env_paths
 from esp_lab.utils import colormap_utils as mycolors
 from workflows.diagnostics import mov_teleconnections as mov_telecon
 
@@ -62,9 +63,9 @@ ALL_VARIABLES = [
     "TREFHT", "TS", "PRECT", "PSL", "SST", "H2OSNO", "H2OSOI",
 ]
 
-DEFAULT_DIAG_ROOT = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag"
-DEFAULT_OUTPUT_DIR = "/global/cfs/cdirs/e3sm/S2S2D/s2d_diag/multimodel/leadtime_telec"
-DEFAULT_FIGURE_DIR = "/global/cfs/cdirs/e3sm/www/zhan391/esp-lab_diag/teleconnections"
+DEFAULT_DIAG_ROOT = str(env_paths.s2d_diag_root())
+DEFAULT_OUTPUT_DIR = str(env_paths.s2d_diag_root() / "multimodel" / "leadtime_telec")
+DEFAULT_FIGURE_DIR = str(env_paths.figure_root() / "teleconnections")
 
 
 def initialization_label(month: int) -> str:
@@ -841,29 +842,13 @@ def plot_taylor_diagram(
     plt.close(fig)
 
 
-def process_pair(mode: str, var: str, args: argparse.Namespace) -> bool:
-    diag_root = Path(args.diag_root)
-    output_dir = Path(args.output_dir)
-    figure_dir = Path(args.figure_dir)
-
-    nc_file = output_dir / f"teleconnection_{mode}_{var}_verify1981_{args.year_end}.nc"
-    fig1 = figure_dir / f"teleconnection_{mode}_{var}_correlation_reference_comparison.png"
-    fig2 = figure_dir / f"teleconnection_{mode}_{var}_summary.png"
-    fig3 = figure_dir / f"teleconnection_{mode}_{var}_taylor_diagram.png"
-
-    all_exist = nc_file.exists() and fig1.exists() and fig2.exists() and fig3.exists()
-    if all_exist and not args.force:
-        print(f"[{mode} - {var}] All products exist. Skipping.")
-        return True
-
-    print(f"\n{'='*70}\nProcessing [{mode} - {var}] (nc: {nc_file.exists()}, fig1: {fig1.exists()}, fig2: {fig2.exists()}, fig3: {fig3.exists()})\n{'='*70}")
-    t0 = time.time()
-
-    config = {
+def _pair_config(mode: str, var: str, args: argparse.Namespace) -> dict[str, Any]:
+    """Teleconnection configuration for one (mode, variable) pair."""
+    return {
         "paths": {
-            "diag_root": str(diag_root),
-            "output_dir": str(output_dir),
-            "figure_dir": str(figure_dir),
+            "diag_root": str(args.diag_root),
+            "output_dir": str(args.output_dir),
+            "figure_dir": str(args.figure_dir),
         },
         "inputs": {
             "mode": "auto",
@@ -914,6 +899,25 @@ def process_pair(mode: str, var: str, args: argparse.Namespace) -> bool:
             "show_significant_only": True,
         },
     }
+
+
+def process_pair(mode: str, var: str, args: argparse.Namespace) -> bool:
+    figure_dir = Path(args.figure_dir)
+
+    nc_file = mov_telecon.mov_teleconnection_cache_path(_pair_config(mode, var, args))
+    fig1 = figure_dir / f"teleconnection_{mode}_{var}_correlation_reference_comparison.png"
+    fig2 = figure_dir / f"teleconnection_{mode}_{var}_summary.png"
+    fig3 = figure_dir / f"teleconnection_{mode}_{var}_taylor_diagram.png"
+
+    all_exist = nc_file.exists() and fig1.exists() and fig2.exists() and fig3.exists()
+    if all_exist and not args.force:
+        print(f"[{mode} - {var}] All products exist. Skipping.")
+        return True
+
+    print(f"\n{'='*70}\nProcessing [{mode} - {var}] (nc: {nc_file.exists()}, fig1: {fig1.exists()}, fig2: {fig2.exists()}, fig3: {fig3.exists()})\n{'='*70}")
+    t0 = time.time()
+
+    config = _pair_config(mode, var, args)
 
     try:
         # Step 1: Ensure NetCDF dataset exists or compute it
@@ -1033,7 +1037,7 @@ def main() -> None:
     skipped_count = 0
 
     for idx, (mode, var) in enumerate(pairs, start=1):
-        nc_file = Path(args.output_dir) / f"teleconnection_{mode}_{var}_verify1981_{args.year_end}.nc"
+        nc_file = mov_telecon.mov_teleconnection_cache_path(_pair_config(mode, var, args))
         fig1 = Path(args.figure_dir) / f"teleconnection_{mode}_{var}_correlation_reference_comparison.png"
         fig2 = Path(args.figure_dir) / f"teleconnection_{mode}_{var}_summary.png"
         fig3 = Path(args.figure_dir) / f"teleconnection_{mode}_{var}_taylor_diagram.png"
