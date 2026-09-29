@@ -1446,3 +1446,42 @@ def build_regional_sst_index_observation(field_cache: xr.Dataset, *, index: str)
         raise ValueError("Observed SST field cache lacks SST_anom.")
     base_index = "Nino3.4" if index == "ONI" else index
     return _apply_sst_index_transform(_sst_index_from_field(field_cache["SST_anom"], index=base_index), index=index, rolling_dim="time")
+
+
+# P7.4 derived SST indices.  These override the basic/IOD/ONI adapter above
+# while preserving its source-native anomaly and NMME per-model climatology contract.
+_build_regional_sst_index_product_base = build_regional_sst_index_product
+_build_regional_sst_index_observation_base = build_regional_sst_index_observation
+
+def _derived_components(field_cache, index):
+    names = ("Nino12", "Nino4") if index == "TNI" else ("Nino3.4", "TropicalMean")
+    if str(field_cache.attrs.get("source", "")).upper() == "NMME":
+        return {name: _nmme_sst_index_anomaly(field_cache, index=name) for name in names}
+    return {name: _sst_index_from_field(field_cache["SST_anom"], index=name) for name in names}
+
+def _derived_value(parts, index, rolling_dim, sample_dims):
+    if index == "TNI":
+        def standardized(data):
+            return data / data.std(sample_dims, skipna=True).where(lambda value: value > 0, 1.0)
+        value = (standardized(parts["Nino12"]) - standardized(parts["Nino4"])).rolling({rolling_dim: 5}, center=True, min_periods=1).mean()
+        return value.where(parts["Nino12"].notnull() & parts["Nino4"].notnull()).rename("mode_index").assign_attrs(index="TNI", units="1", long_name="Trans-Niño Index", index_definition="centered five-month mean of standardized Nino12 minus Nino4 anomalies")
+    difference = (parts["Nino3.4"] - parts["TropicalMean"]).rolling({rolling_dim: 3}, center=True, min_periods=1).mean()
+    nino34 = parts["Nino3.4"].rolling({rolling_dim: 3}, center=True, min_periods=1).mean()
+    denominator = difference.std(sample_dims, skipna=True)
+    scale = (nino34.std(sample_dims, skipna=True) / denominator).fillna(1.0).where(denominator > 0, 1.0)
+    return (difference * scale).where(parts["Nino3.4"].notnull() & parts["TropicalMean"].notnull()).rename("mode_index").assign_attrs(index="RONI", units=str(nino34.attrs.get("units", "degC")), long_name="Relative Oceanic Niño Index", index_definition="variance-scaled centered three-month Nino3.4 minus tropical-mean anomaly")
+
+def build_regional_sst_index_product(field_cache, *, index):
+    if index not in {"TNI", "RONI"}:
+        return _build_regional_sst_index_product_base(field_cache, index=index)
+    value = _derived_value(_derived_components(field_cache, index), index, "L", ("Y", "M")).transpose("Y", "L", "M")
+    valid_time = field_cache["valid_time"].transpose("Y", "L")
+    result = xr.Dataset({"mode_index": value, "valid_time": valid_time, "target_month": valid_time.isel(Y=0).dt.month.rename("target_month")})
+    result.attrs.update({key: str(field_cache.attrs[key]) for key in REFERENCE_ATTRIBUTES})
+    result.attrs.update(index=index, index_definition=str(value.attrs["index_definition"]), source_native_sst_anomaly="true")
+    return result
+
+def build_regional_sst_index_observation(field_cache, *, index):
+    if index not in {"TNI", "RONI"}:
+        return _build_regional_sst_index_observation_base(field_cache, index=index)
+    return _derived_value(_derived_components(field_cache, index), index, "time", ("time",))
